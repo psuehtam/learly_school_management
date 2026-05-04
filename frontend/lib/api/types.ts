@@ -3,6 +3,7 @@
 
 export type ApiErrorPayload = {
   message?: string;
+  mensagem?: string;
   error?: string;
   title?: string;
   detail?: string;

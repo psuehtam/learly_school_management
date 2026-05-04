@@ -1,5 +1,6 @@
 using Learly.Application.Contracts.Aulas.Requests;
 using Learly.Application.Contracts.Aulas.Responses;
+using Learly.Application.Contracts.Calendario.Responses;
 using Learly.Application.Contracts.Escolas.Responses;
 using Learly.Application.Contracts.Matriculas.Responses;
 using Learly.Domain.Entities;
@@ -14,6 +15,7 @@ public sealed class ApplicationMappingRegister : IRegister
         config.NewConfig<Escola, EscolaListItemResponse>();
 
         config.NewConfig<Aula, AulaListItemResponse>();
+        config.NewConfig<CalendarioGeral, EventoCalendarioResponse>();
 
         config.NewConfig<Matricula, MatriculaListItemResponse>();
 

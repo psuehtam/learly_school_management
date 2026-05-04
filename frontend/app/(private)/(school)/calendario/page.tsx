@@ -1,6 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  criarEvento,
+  deletarEvento,
+  editarEvento,
+  listarEventos,
+  type EventoCalendario,
+} from "@/lib/api/calendario";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type TipoEvento = "aula" | "sem_aula" | "feriado" | "recesso";
@@ -41,7 +48,10 @@ export default function CalendarioPage() {
   const [mes, setMes] = useState(hoje.getMonth());
   const [tipoSelecionado, setTipoSelecionado] = useState<TipoEvento>("sem_aula");
   const [diasMarcados, setDiasMarcados] = useState<DiaEvento[]>([]);
+  const [eventosCarregados, setEventosCarregados] = useState<EventoCalendario[]>([]);
   const [alteracoesPendentes, setAlteracoesPendentes] = useState(false);
+  const [carregando, setCarregando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
 
   const totalDias = diasNoMes(ano, mes);
   const offset = primeiroDiaSemana(ano, mes);
@@ -49,6 +59,50 @@ export default function CalendarioPage() {
   function getDiaMarcado(data: string): DiaEvento | undefined {
     return diasMarcados.find((d) => d.data === data);
   }
+
+  function tipoParaApi(tipo: TipoEvento): EventoCalendario["tipoEvento"] {
+    if (tipo === "sem_aula") return "SEM AULA";
+    if (tipo === "feriado") return "FERIADO";
+    if (tipo === "recesso") return "RECESSO";
+    return "AULA";
+  }
+
+  function tipoDaApi(tipo: EventoCalendario["tipoEvento"]): TipoEvento {
+    if (tipo === "SEM AULA") return "sem_aula";
+    if (tipo === "FERIADO") return "feriado";
+    if (tipo === "RECESSO") return "recesso";
+    return "aula";
+  }
+
+  function descricaoPadrao(tipo: TipoEvento): string {
+    if (tipo === "sem_aula") return "Dia sem aula";
+    if (tipo === "feriado") return "Feriado";
+    if (tipo === "recesso") return "Recesso";
+    return "Dia letivo";
+  }
+
+  const carregarEventosMes = useCallback(async () => {
+    setCarregando(true);
+    try {
+      const lista = await listarEventos(mes + 1, ano);
+      setEventosCarregados(lista);
+      setDiasMarcados(
+        lista
+          .filter((evento) => evento.tipoEvento !== "AULA")
+          .map((evento) => ({
+            data: evento.dataEvento,
+            tipo: tipoDaApi(evento.tipoEvento),
+          })),
+      );
+      setAlteracoesPendentes(false);
+    } finally {
+      setCarregando(false);
+    }
+  }, [ano, mes]);
+
+  useEffect(() => {
+    void carregarEventosMes();
+  }, [carregarEventosMes]);
 
   function clicarDia(dia: number) {
     const data = formatarData(ano, mes, dia);
@@ -69,10 +123,53 @@ export default function CalendarioPage() {
     setAlteracoesPendentes(true);
   }
 
-  function aplicarAlteracoes() {
-    // TODO: enviar diasMarcados para a API
-    setAlteracoesPendentes(false);
-    alert("Alterações salvas! (conectar com API)");
+  async function aplicarAlteracoes() {
+    setSalvando(true);
+    try {
+      const marcadosPorData = new Map(diasMarcados.map((d) => [d.data, d.tipo]));
+      const carregadosPorData = new Map(eventosCarregados.map((e) => [e.dataEvento, e]));
+
+      for (const [data, tipo] of marcadosPorData) {
+        const eventoExistente = carregadosPorData.get(data);
+
+        if (!eventoExistente) {
+          if (tipo !== "aula") {
+            await criarEvento({
+              dataEvento: data,
+              tipoEvento: tipoParaApi(tipo),
+              descricao: descricaoPadrao(tipo),
+            });
+          }
+          continue;
+        }
+
+        if (tipo === "aula") {
+          await deletarEvento(eventoExistente.id);
+          continue;
+        }
+
+        const novoTipo = tipoParaApi(tipo);
+        if (eventoExistente.tipoEvento !== novoTipo) {
+          await editarEvento(eventoExistente.id, {
+            tipoEvento: novoTipo,
+            descricao: descricaoPadrao(tipo),
+          });
+        }
+      }
+
+      for (const evento of eventosCarregados) {
+        if (!marcadosPorData.has(evento.dataEvento)) {
+          await deletarEvento(evento.id);
+        }
+      }
+
+      await carregarEventosMes();
+      alert("Alteracoes salvas com sucesso.");
+    } catch {
+      alert("Nao foi possivel salvar as alteracoes do calendario.");
+    } finally {
+      setSalvando(false);
+    }
   }
 
   function mesAnterior() {
@@ -102,18 +199,19 @@ export default function CalendarioPage() {
       {/* Topo */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">Calendário Geral</h1>
+          <h1 className="text-xl font-semibold text-zinc-900">Calendario Geral</h1>
           <p className="text-sm text-zinc-500 mt-0.5">Gerencie o calendário letivo da escola</p>
         </div>
         {alteracoesPendentes && (
           <button
             onClick={aplicarAlteracoes}
+            disabled={salvando}
             className="flex items-center gap-2 h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
-            Aplicar alterações
+            {salvando ? "Salvando..." : "Aplicar alteracoes"}
           </button>
         )}
       </div>
@@ -140,6 +238,7 @@ export default function CalendarioPage() {
 
           {/* Grid */}
           <div className="px-4 py-4">
+            {carregando && <p className="text-xs text-zinc-500 mb-3">Carregando eventos...</p>}
             {/* Cabeçalho dias da semana */}
             <div className="grid grid-cols-7 mb-2">
               {DIAS_SEMANA.map((d) => (

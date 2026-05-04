@@ -20,6 +20,7 @@ public sealed class AulasService : IAulasService
 
     private readonly IAulaRepository _aulas;
     private readonly IEscolaRepository _escolas;
+    private readonly ICalendarioGeralRepository _calendario;
     private readonly ITurmaRepository _turmas;
     private readonly IUsuarioRepository _usuarios;
     private readonly IUnitOfWork _unitOfWork;
@@ -28,6 +29,7 @@ public sealed class AulasService : IAulasService
     public AulasService(
         IAulaRepository aulas,
         IEscolaRepository escolas,
+        ICalendarioGeralRepository calendario,
         ITurmaRepository turmas,
         IUsuarioRepository usuarios,
         IUnitOfWork unitOfWork,
@@ -35,6 +37,7 @@ public sealed class AulasService : IAulasService
     {
         _aulas = aulas;
         _escolas = escolas;
+        _calendario = calendario;
         _turmas = turmas;
         _usuarios = usuarios;
         _unitOfWork = unitOfWork;
@@ -97,6 +100,21 @@ public sealed class AulasService : IAulasService
             return new AulaCriacaoResultado(false, null, "Horario fim deve ser maior que horario inicio.", AulaCriacaoFalha.Validacao);
         }
 
+        var tipoAulaSolicitada = string.IsNullOrWhiteSpace(request.TipoAula) ? "Normal" : request.TipoAula.Trim();
+        var bloqueiaPorCalendario = await DeveBloquearPorCalendarioAsync(
+            escolaId.Value,
+            request.DataAula,
+            tipoAulaSolicitada,
+            cancellationToken);
+        if (bloqueiaPorCalendario)
+        {
+            return new AulaCriacaoResultado(
+                false,
+                null,
+                "Data marcada no calendario geral como sem aula para aulas e reposicoes.",
+                AulaCriacaoFalha.Validacao);
+        }
+
         var turma = await _turmas.ObterPorIdEEscolaAsync(request.TurmaId, escolaId.Value, cancellationToken);
         if (turma is null)
         {
@@ -148,6 +166,19 @@ public sealed class AulasService : IAulasService
         if (horarioFim <= horarioInicio)
         {
             return new AulaOperacaoResultado(false, "Horario fim deve ser maior que horario inicio.", 400);
+        }
+
+        if (request.DataAula.HasValue)
+        {
+            var bloqueiaPorCalendario = await DeveBloquearPorCalendarioAsync(
+                escolaId.Value,
+                request.DataAula.Value,
+                aula.TipoAula,
+                cancellationToken);
+            if (bloqueiaPorCalendario)
+            {
+                return new AulaOperacaoResultado(false, "Data marcada no calendario geral como sem aula para aulas e reposicoes.", 409);
+            }
         }
 
         if (request.Status is not null)
@@ -233,5 +264,20 @@ public sealed class AulasService : IAulasService
             "cancelada" => false,
             _ => false
         };
+    }
+
+    private async Task<bool> DeveBloquearPorCalendarioAsync(
+        int escolaId,
+        DateOnly dataAula,
+        string tipoAula,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(tipoAula, "Normal", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(tipoAula, "Reposicao", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return await _calendario.DiaSuspendeAulaAsync(escolaId, dataAula, cancellationToken);
     }
 }

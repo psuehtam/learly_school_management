@@ -18,6 +18,7 @@ const PRIVATE_PREFIXES = [
   "/secretaria",
   "/comercial",
   "/calendario",
+  "/compromissos",
   "/unauthorized",
   "/super-admin",
 ];
