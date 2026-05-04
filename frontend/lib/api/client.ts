@@ -53,6 +53,7 @@ function resolveErrorMessage(data: unknown, fallback: string): string {
   const payload = data as ApiErrorPayload;
   return (
     payload.message ||
+    payload.mensagem ||
     payload.error ||
     payload.title ||
     payload.detail ||

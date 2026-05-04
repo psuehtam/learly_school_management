@@ -143,6 +143,14 @@ export const SCHOOL_MENU: MenuEntry[] = [
         icon: <IconCalendar />,
         permission: "VISUALIZAR_CALENDARIO",
       },
+      {
+        type: "item",
+        key: "compromissos",
+        label: "Compromissos",
+        href: "/compromissos",
+        icon: <IconClock />,
+        permission: "VISUALIZAR_COMPROMISSOS",
+      },
     ],
   },
 

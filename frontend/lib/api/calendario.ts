@@ -2,12 +2,10 @@ import { apiRequest } from "@/lib/api/client";
 
 export interface EventoCalendario {
   id: number;
-  escolaId: number;
-  titulo: string;
+  dataEvento: string;
+  tipoEvento: "AULA" | "SEM AULA" | "FERIADO" | "RECESSO";
   descricao?: string;
-  dataInicio: string;
-  dataFim?: string;
-  tipo: string;
+  suspendeAula: boolean;
 }
 
 export async function listarEventos(mes: number, ano: number): Promise<EventoCalendario[]> {

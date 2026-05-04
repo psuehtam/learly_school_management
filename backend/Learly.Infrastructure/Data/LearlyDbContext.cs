@@ -20,6 +20,9 @@ public class LearlyDbContext : DbContext
     public DbSet<UsuarioPermissao> UsuarioPermissoes => Set<UsuarioPermissao>();
     public DbSet<Turma> Turmas => Set<Turma>();
     public DbSet<Aula> Aulas => Set<Aula>();
+    public DbSet<CalendarioGeral> CalendariosGerais => Set<CalendarioGeral>();
+    public DbSet<Compromisso> Compromissos => Set<Compromisso>();
+    public DbSet<CompromissoParticipante> CompromissosParticipantes => Set<CompromissoParticipante>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
