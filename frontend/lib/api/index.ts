@@ -10,3 +10,4 @@ export * from "./livros";
 export * from "./calendario";
 export * from "./reposicoes";
 export * from "./usuarios";
+export * from "./matriculas";

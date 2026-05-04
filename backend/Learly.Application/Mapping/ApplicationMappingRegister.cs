@@ -1,6 +1,7 @@
 using Learly.Application.Contracts.Aulas.Requests;
 using Learly.Application.Contracts.Aulas.Responses;
 using Learly.Application.Contracts.Escolas.Responses;
+using Learly.Application.Contracts.Matriculas.Responses;
 using Learly.Domain.Entities;
 using Mapster;
 
@@ -13,6 +14,8 @@ public sealed class ApplicationMappingRegister : IRegister
         config.NewConfig<Escola, EscolaListItemResponse>();
 
         config.NewConfig<Aula, AulaListItemResponse>();
+
+        config.NewConfig<Matricula, MatriculaListItemResponse>();
 
         config.NewConfig<CriarAulaRequest, Aula>()
             .Ignore(dest => dest.Id)
