@@ -19,7 +19,8 @@ public sealed class UsuariosService : IUsuariosService
                 "CRIAR_USUARIO", "VISUALIZAR_USUARIO", "EDITAR_USUARIO", "INATIVAR_USUARIO",
                 "GERENCIAR_PERMISSOES_USUARIO", "VISUALIZAR_TURMA", "VISUALIZAR_AULA",
                 "VISUALIZAR_MATRICULA", "VISUALIZAR_PRE_ALUNO", "VISUALIZAR_PARCELA",
-                "VISUALIZAR_ALUNO", "VISUALIZAR_REPOSICAO", "VISUALIZAR_LIVRO",
+                "VISUALIZAR_ALUNO", "VISUALIZAR_REPOSICAO",
+                "VISUALIZAR_LIVRO", "CRIAR_LIVRO", "EDITAR_LIVRO", "INATIVAR_LIVRO",
                 "VISUALIZAR_CALENDARIO", "VISUALIZAR_DASHBOARD_GERAL", "VISUALIZAR_AGENDA_GLOBAL",
                 "CRIAR_COMPROMISSO", "VISUALIZAR_COMPROMISSOS", "EDITAR_COMPROMISSO", "EXCLUIR_COMPROMISSO",
             ],
@@ -34,6 +35,7 @@ public sealed class UsuariosService : IUsuariosService
             ["Coordenador"] =
             [
                 "VISUALIZAR_TURMA", "VISUALIZAR_AULA", "VISUALIZAR_REPOSICAO", "VISUALIZAR_DASHBOARD_GERAL",
+                "VISUALIZAR_LIVRO", "CRIAR_LIVRO", "EDITAR_LIVRO", "INATIVAR_LIVRO",
                 "CRIAR_COMPROMISSO", "VISUALIZAR_COMPROMISSOS", "EDITAR_COMPROMISSO", "EXCLUIR_COMPROMISSO",
             ],
         };
@@ -266,6 +268,12 @@ public sealed class UsuariosService : IUsuariosService
                 var perfil = await _perfis.ObterPorIdEEscolaAsync(request.PerfilId, escolaId, cancellationToken);
                 if (perfil is null || !string.Equals(perfil.Status, Perfil.Estados.Ativo, StringComparison.OrdinalIgnoreCase))
                     throw new DomainException("Perfil invalido para esta escola.");
+
+                if (string.Equals(request.Status, Usuario.Estados.Inativo, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(perfil.Nome, "Administrador", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DomainException("Nao e permitido inativar usuario com perfil Administrador.");
+                }
 
                 var emailNormalizado = request.Email.Trim().ToLowerInvariant();
                 var emailDuplicado = await _usuarios.ExisteComEmailExcetoIdAsync(emailNormalizado, usuario.Id, cancellationToken);

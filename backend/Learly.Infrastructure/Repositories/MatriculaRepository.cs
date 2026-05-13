@@ -2,6 +2,7 @@ using System.Data;
 using System.Data.Common;
 using Learly.Domain.Entities;
 using Learly.Domain.Interfaces.Repositories;
+using Learly.Domain.ReadModels;
 using Learly.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -51,34 +52,53 @@ internal sealed class MatriculaRepository(LearlyDbContext db) : RepositoryBase<M
             cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Matricula>> ListarPorEscolaComFiltrosAsync(
+    public async Task<IReadOnlyList<MatriculaListagemItem>> ListarPorEscolaComFiltrosAsync(
         int escolaId,
         string? status,
         int? alunoId,
         int? turmaId,
         CancellationToken cancellationToken = default)
     {
-        var query = Db.Matriculas.AsNoTracking().Where(m => m.EscolaId == escolaId);
+        var matriculas = Db.Matriculas
+            .AsNoTracking()
+            .Where(m => m.EscolaId == escolaId);
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            query = query.Where(m => m.Status == status);
+            matriculas = matriculas.Where(m => m.Status == status);
         }
 
         if (alunoId.HasValue)
         {
-            query = query.Where(m => m.AlunoId == alunoId.Value);
+            matriculas = matriculas.Where(m => m.AlunoId == alunoId.Value);
         }
 
         if (turmaId.HasValue)
         {
-            query = query.Where(m => m.TurmaId == turmaId.Value);
+            matriculas = matriculas.Where(m => m.TurmaId == turmaId.Value);
         }
 
-        return await query
-            .OrderByDescending(m => m.DataMatricula)
-            .ThenBy(m => m.Id)
-            .ToListAsync(cancellationToken);
+        var query =
+            from m in matriculas
+            join a in Db.Alunos.AsNoTracking()
+                on new { m.AlunoId, m.EscolaId } equals new { AlunoId = a.Id, EscolaId = a.EscolaId }
+            join t in Db.Turmas.AsNoTracking()
+                on new { TurmaId = m.TurmaId, m.EscolaId } equals new { TurmaId = (int?)t.Id, EscolaId = t.EscolaId } into turmas
+            from t in turmas.DefaultIfEmpty()
+            orderby m.DataMatricula descending, m.Id
+            select new MatriculaListagemItem(
+                m.Id,
+                m.EscolaId,
+                m.AlunoId,
+                (a.Nome.Trim() + " " + a.Sobrenome.Trim()).Trim(),
+                m.TurmaId,
+                t != null ? t.Nome : null,
+                m.DataMatricula,
+                m.Status,
+                m.DataCriacao,
+                m.DataAtualizacao);
+
+        return await query.ToListAsync(cancellationToken);
     }
 
     private async Task<bool> ExecutarExistsSqlAsync(string sql, Action<DbCommand> configurar, CancellationToken cancellationToken)

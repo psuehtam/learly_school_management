@@ -5,6 +5,7 @@ using Learly.Application.Services.Common;
 using Learly.Domain.Entities;
 using Learly.Domain.Interfaces.Persistence;
 using Learly.Domain.Interfaces.Repositories;
+using Learly.Domain.ReadModels;
 using MapsterMapper;
 
 namespace Learly.Application.Services.Matriculas;
@@ -95,7 +96,8 @@ public sealed class MatriculasService : IMatriculasService
             filtro.TurmaId,
             cancellationToken);
 
-        var itens = entidades.Select(m => _mapper.Map<MatriculaListItemResponse>(m)).ToList();
+        // Mapeamento explicito (Mapster com record + init-only pode omitir AlunoNomeCompleto na serializacao).
+        var itens = entidades.Select(MapListItem).ToList();
         return new MatriculaListagemResultado(true, itens, null, MatriculaListagemFalha.Nenhuma);
     }
 
@@ -273,6 +275,21 @@ public sealed class MatriculasService : IMatriculasService
 
         return new MatriculaOperacaoResultado(true, null, 204);
     }
+
+    private static MatriculaListItemResponse MapListItem(MatriculaListagemItem m) =>
+        new()
+        {
+            Id = m.Id,
+            EscolaId = m.EscolaId,
+            AlunoId = m.AlunoId,
+            AlunoNomeCompleto = m.AlunoNomeCompleto,
+            TurmaId = m.TurmaId,
+            TurmaNome = m.TurmaNome,
+            DataMatricula = m.DataMatricula,
+            Status = m.Status,
+            DataCriacao = m.DataCriacao,
+            DataAtualizacao = m.DataAtualizacao,
+        };
 
     private Task<int?> ObterIdEscolaAtivaPorCodigoAsync(string? codigoEscola, CancellationToken cancellationToken)
     {

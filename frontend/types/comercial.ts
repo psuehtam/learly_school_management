@@ -1,37 +1,164 @@
-export interface PreAluno {
+export type PreAlunoStatus =
+
+  | "Em negociacao"
+
+  | "Aguardando aprovacao"
+
+  | "Aprovado"
+
+  | "Matriculado"
+
+  | "Cancelado";
+
+
+
+/** Item retornado pela listagem `/api/pre-alunos`. */
+
+export interface PreAlunoListItem {
+
   id: number;
-  escolaId: number;
-  responsavelId: number;
-  nome: string;
-  sobrenome: string;
-  dataNascimento: string;
-  livroInteresseId: number;
+
+  nomeCompletoAluno: string;
+
+  nomeCompletoResponsavel: string;
+
+  dataCadastro: string;
+
   tipoContrato: string;
+
+  status: PreAlunoStatus;
+
+  nomeLivroInteresse: string;
+
+  telefoneAluno: string | null;
+
   valorMensalidade: number;
-  formaPagamento: string;
-  dataInicioPrevista: string;
-  observacoes?: string;
-  status:
-    | "Em negociacao"
-    | "Aguardando aprovacao"
-    | "Aprovado"
-    | "Matriculado"
-    | "Cancelado";
+
+  formaPagamento: string | null;
+
+  origemCaptacao: string;
+
+  valorMaterial: number | null;
+
+  valorMatricula: number;
+
 }
+
+
+
+export interface LivroInteresseOpcao {
+
+  id: number;
+
+  nome: string;
+
+  status: string;
+
+}
+
+
+
+export interface CriarPreAlunoPayload {
+
+  /** Permitido apenas se maior de idade; menores sempre `false`. */
+
+  eProprioResponsavel: boolean;
+
+  /** Obrigatório quando maior e `eProprioResponsavel`. */
+
+  alunoCpf?: string | null;
+
+  responsavelTipoPessoa: string;
+
+  responsavelCpfCnpj: string;
+
+  responsavelNome: string;
+
+  responsavelSobrenome: string;
+
+  responsavelTelefone: string;
+
+  nome: string;
+
+  sobrenome: string;
+
+  dataNascimento: string;
+
+  telefoneAluno?: string | null;
+
+  livroInteresseId: number;
+
+  tipoContrato: string;
+
+  valorMensalidade: number;
+
+  /** Opcional. */
+
+  formaPagamento?: string | null;
+
+  valorMatricula: number;
+
+  /** Obrigatório se `valorMatricula` > 0. */
+
+  formaPagamentoMatricula?: string | null;
+
+  /** Valor total do livro/material (0 = gratuito). */
+
+  valorMaterial?: number | null;
+
+  origemCaptacao: string;
+
+  usaTransporteVan: boolean;
+
+  transporteCep?: string | null;
+
+  transporteLogradouro?: string | null;
+
+  transporteNumero?: string | null;
+
+  transporteComplemento?: string | null;
+
+  transporteBairro?: string | null;
+
+  transporteCidade?: string | null;
+
+  transporteUf?: string | null;
+
+  observacoesComerciais?: string | null;
+
+}
+
+
 
 export interface Contrato {
+
   id: number;
+
   preAlunoId: number;
+
   templateId: number;
+
   conteudo: string;
+
   status: "Gerado" | "Assinado" | "Cancelado";
+
   dataCriacao: string;
+
 }
 
+
+
 export interface ContratoTemplate {
+
   id: number;
+
   escolaId: number;
+
   nome: string;
+
   conteudo: string;
+
   status: "Ativo" | "Inativo";
+
 }
+

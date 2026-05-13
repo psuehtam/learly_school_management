@@ -63,6 +63,53 @@ internal sealed class AlunoRepository(LearlyDbContext db) : RepositoryBase<Aluno
         }
     }
 
+    public async Task<int> CriarResponsavelMinimoAsync(
+        int escolaId,
+        string tipoPessoa,
+        string cpfCnpj,
+        string nome,
+        string sobrenome,
+        CancellationToken cancellationToken = default)
+    {
+        const string insertSql = """
+            INSERT INTO responsaveis
+                (escola_id, tipo_pessoa, cpf_cnpj, nome, sobrenome, status)
+            VALUES
+                (@escolaId, @tipoPessoa, @cpfCnpj, @nome, @sobrenome, 'Ativo');
+            """;
+        const string lastIdSql = "SELECT LAST_INSERT_ID();";
+
+        var connection = Db.Database.GetDbConnection();
+        var shouldClose = connection.State == ConnectionState.Closed;
+
+        if (shouldClose)
+            await connection.OpenAsync(cancellationToken);
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = insertSql;
+            SetCurrentTransaction(command);
+            AddParameter(command, "@escolaId", escolaId);
+            AddParameter(command, "@tipoPessoa", tipoPessoa);
+            AddParameter(command, "@cpfCnpj", cpfCnpj);
+            AddParameter(command, "@nome", nome);
+            AddParameter(command, "@sobrenome", sobrenome);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+
+            using var commandLastId = connection.CreateCommand();
+            commandLastId.CommandText = lastIdSql;
+            SetCurrentTransaction(commandLastId);
+            var scalar = await commandLastId.ExecuteScalarAsync(cancellationToken);
+            return Convert.ToInt32(scalar);
+        }
+        finally
+        {
+            if (shouldClose)
+                await connection.CloseAsync();
+        }
+    }
+
     public async Task<int> CriarResponsavelFisicoAsync(
         int escolaId,
         string cpf,
@@ -116,6 +163,46 @@ internal sealed class AlunoRepository(LearlyDbContext db) : RepositoryBase<Aluno
             SetCurrentTransaction(commandLastId);
             var scalar = await commandLastId.ExecuteScalarAsync(cancellationToken);
             return Convert.ToInt32(scalar);
+        }
+        finally
+        {
+            if (shouldClose)
+                await connection.CloseAsync();
+        }
+    }
+
+    public async Task InserirContatoTelefoneAsync(
+        int escolaId,
+        string entidade,
+        int entidadeId,
+        string tipo,
+        string numero,
+        bool principal,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            INSERT INTO contatos_telefone (escola_id, entidade, entidade_id, tipo, numero, principal)
+            VALUES (@escolaId, @entidade, @entidadeId, @tipo, @numero, @principal);
+            """;
+
+        var connection = Db.Database.GetDbConnection();
+        var shouldClose = connection.State == ConnectionState.Closed;
+
+        if (shouldClose)
+            await connection.OpenAsync(cancellationToken);
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            SetCurrentTransaction(command);
+            AddParameter(command, "@escolaId", escolaId);
+            AddParameter(command, "@entidade", entidade);
+            AddParameter(command, "@entidadeId", entidadeId);
+            AddParameter(command, "@tipo", tipo);
+            AddParameter(command, "@numero", numero);
+            AddParameter(command, "@principal", principal);
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
         finally
         {

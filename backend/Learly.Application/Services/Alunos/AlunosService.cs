@@ -53,6 +53,42 @@ public sealed class AlunosService : IAlunosService
         if (!EnderecoAlunoValido(request))
             return new CriarAlunoResultado(false, null, null, "Endereco do aluno incompleto. Preencha CEP, tipo/logradouro, numero, bairro e municipio.", CriarAlunoFalha.Validacao);
 
+        var telAlunoDigits = SomenteDigitos(request.AlunoTelefone);
+        var telRespDigits = SomenteDigitos(request.ResponsavelTelefone);
+        if (request.EProprioResponsavel)
+        {
+            if (telAlunoDigits.Length < 10)
+            {
+                return new CriarAlunoResultado(
+                    false,
+                    null,
+                    null,
+                    "Telefone celular do aluno e obrigatorio quando ele e o proprio responsavel (minimo 10 digitos).",
+                    CriarAlunoFalha.Validacao);
+            }
+        }
+        else
+        {
+            if (telRespDigits.Length < 10)
+            {
+                return new CriarAlunoResultado(
+                    false,
+                    null,
+                    null,
+                    "Telefone celular do responsavel e obrigatorio (minimo 10 digitos).",
+                    CriarAlunoFalha.Validacao);
+            }
+
+            if (telAlunoDigits is { Length: > 0 and < 10 })
+            {
+                return new CriarAlunoResultado(false, null, null, "Telefone do aluno invalido.", CriarAlunoFalha.Validacao);
+            }
+        }
+
+        var erroCamposExtras = ValidarCamposExtrasAluno(request);
+        if (erroCamposExtras is not null)
+            return new CriarAlunoResultado(false, null, null, erroCamposExtras, CriarAlunoFalha.Validacao);
+
         var cpf = string.IsNullOrWhiteSpace(request.Cpf) ? null : request.Cpf.Trim();
         if (!string.IsNullOrWhiteSpace(cpf))
         {
@@ -103,7 +139,7 @@ public sealed class AlunosService : IAlunosService
                     false,
                     null,
                     null,
-                    "Dados do responsavel (nome, sobrenome e CPF) sao obrigatorios para aluno menor de idade.",
+                    "Dados do responsavel (nome, sobrenome e CPF) sao obrigatorios quando o aluno nao e o proprio responsavel.",
                     CriarAlunoFalha.Validacao);
             }
 
@@ -165,6 +201,21 @@ public sealed class AlunosService : IAlunosService
                 Complemento = string.IsNullOrWhiteSpace(request.Complemento) ? null : request.Complemento.Trim(),
                 Bairro = request.Bairro.Trim(),
                 Municipio = request.Municipio.Trim(),
+                CorRaca = NormalizarCorRaca(request.CorRaca),
+                EstadoCivil = NormalizarEstadoCivil(request.EstadoCivil),
+                Profissao = string.IsNullOrWhiteSpace(request.Profissao) ? null : request.Profissao.Trim(),
+                RegistroEscolar = string.IsNullOrWhiteSpace(request.RegistroEscolar) ? null : request.RegistroEscolar.Trim(),
+                Nacionalidade = string.IsNullOrWhiteSpace(request.Nacionalidade) ? null : request.Nacionalidade.Trim(),
+                DataEntradaPais = request.DataEntradaPais,
+                NaturalidadeCidade = string.IsNullOrWhiteSpace(request.NaturalidadeCidade)
+                    ? null
+                    : request.NaturalidadeCidade.Trim(),
+                NaturalidadeEstado = string.IsNullOrWhiteSpace(request.NaturalidadeEstado)
+                    ? null
+                    : request.NaturalidadeEstado.Trim().ToUpperInvariant(),
+                RgNumero = string.IsNullOrWhiteSpace(request.RgNumero) ? null : request.RgNumero.Trim(),
+                RgExpedicao = request.RgExpedicao,
+                RgOrgao = string.IsNullOrWhiteSpace(request.RgOrgao) ? null : request.RgOrgao.Trim(),
                 Status = Aluno.Estados.Ativo,
                 DataCriacao = agoraUtc,
                 DataAtualizacao = agoraUtc
@@ -188,6 +239,30 @@ public sealed class AlunosService : IAlunosService
             _matriculas.Adicionar(matricula);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             matriculaId = matricula.Id;
+
+            if (telAlunoDigits.Length >= 10)
+            {
+                await _alunos.InserirContatoTelefoneAsync(
+                    escolaId.Value,
+                    "aluno",
+                    aluno.Id,
+                    "Celular",
+                    telAlunoDigits,
+                    principal: true,
+                    cancellationToken);
+            }
+
+            if (!request.EProprioResponsavel && telRespDigits.Length >= 10)
+            {
+                await _alunos.InserirContatoTelefoneAsync(
+                    escolaId.Value,
+                    "responsavel",
+                    responsavelIdResolvido,
+                    "Celular",
+                    telRespDigits,
+                    principal: true,
+                    cancellationToken);
+            }
         }, cancellationToken);
 
         return new CriarAlunoResultado(true, alunoId, matriculaId, null, CriarAlunoFalha.Nenhuma);
@@ -220,5 +295,52 @@ public sealed class AlunosService : IAlunosService
                && !string.IsNullOrWhiteSpace(request.Numero)
                && !string.IsNullOrWhiteSpace(request.Bairro)
                && !string.IsNullOrWhiteSpace(request.Municipio);
+    }
+
+    private static string SomenteDigitos(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value.Where(char.IsAsciiDigit).ToArray());
+    }
+
+    private static string? NormalizarCorRaca(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var s = value.Trim();
+        return s is "Branca" or "Preta" or "Parda" or "Amarela" or "Indigena" or "Nao Declarado" ? s : null;
+    }
+
+    private static string? NormalizarEstadoCivil(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var s = value.Trim();
+        return s is "Solteiro" or "Casado" or "Divorciado" or "Viuvo" or "Uniao Estavel" ? s : null;
+    }
+
+    private static string? ValidarCamposExtrasAluno(CriarAlunoRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.CorRaca) && NormalizarCorRaca(request.CorRaca) is null)
+            return "Valor invalido para cor/raca.";
+
+        if (!string.IsNullOrWhiteSpace(request.EstadoCivil) && NormalizarEstadoCivil(request.EstadoCivil) is null)
+            return "Valor invalido para estado civil.";
+
+        if (!string.IsNullOrWhiteSpace(request.NaturalidadeEstado))
+        {
+            var u = request.NaturalidadeEstado.Trim().ToUpperInvariant();
+            if (u.Length is < 2 or > 2 || !u.All(char.IsAsciiLetter))
+                return "UF de naturalidade deve ter 2 letras.";
+        }
+
+        if (request.RgExpedicao.HasValue && request.RgExpedicao.Value > DateOnly.FromDateTime(DateTime.UtcNow))
+            return "Data de expedicao do RG invalida.";
+
+        return null;
     }
 }

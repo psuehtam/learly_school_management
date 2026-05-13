@@ -30,6 +30,25 @@ public sealed class AlunoConfiguration : IEntityTypeConfiguration<Aluno>
         builder.Property(a => a.Complemento).HasColumnName("complemento").HasMaxLength(100);
         builder.Property(a => a.Bairro).HasColumnName("bairro").HasMaxLength(100).IsRequired();
         builder.Property(a => a.Municipio).HasColumnName("municipio").HasMaxLength(100).IsRequired();
+
+        builder.Property(a => a.CorRaca)
+            .HasColumnName("cor_raca")
+            .HasColumnType("enum('Branca', 'Preta', 'Parda', 'Amarela', 'Indigena', 'Nao Declarado')");
+
+        builder.Property(a => a.EstadoCivil)
+            .HasColumnName("estado_civil")
+            .HasColumnType("enum('Solteiro', 'Casado', 'Divorciado', 'Viuvo', 'Uniao Estavel')");
+
+        builder.Property(a => a.Profissao).HasColumnName("profissao").HasMaxLength(100);
+        builder.Property(a => a.RegistroEscolar).HasColumnName("registro_escolar").HasMaxLength(50);
+        builder.Property(a => a.Nacionalidade).HasColumnName("nacionalidade").HasMaxLength(50);
+        builder.Property(a => a.DataEntradaPais).HasColumnName("data_entrada_pais");
+        builder.Property(a => a.NaturalidadeCidade).HasColumnName("naturalidade_cidade").HasMaxLength(100);
+        builder.Property(a => a.NaturalidadeEstado).HasColumnName("naturalidade_estado").HasMaxLength(2);
+        builder.Property(a => a.RgNumero).HasColumnName("rg_numero").HasMaxLength(50);
+        builder.Property(a => a.RgExpedicao).HasColumnName("rg_expedicao");
+        builder.Property(a => a.RgOrgao).HasColumnName("rg_orgao").HasMaxLength(20);
+
         builder.Property(a => a.Status).HasColumnName("status").HasColumnType("enum('Ativo', 'Inativo', 'Trancado')").IsRequired();
         builder.Property(a => a.DataCriacao).HasColumnName("data_criacao");
         builder.Property(a => a.DataAtualizacao).HasColumnName("data_atualizacao");

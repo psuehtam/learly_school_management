@@ -5,7 +5,7 @@
 LEARLY
 Especificacao de Requisitos de Software
 
-Versao 4.0
+Versao 4.1
 Sistema de Gestao para Escola de Idiomas
 
 
@@ -30,6 +30,7 @@ Versao	Data	Autor	Descricao das Alteracoes
 2.0	—	Equipe Learly	Adicao de modelo de banco de dados e multi-tenancy
 3.0	19/03/2026	Equipe Learly	Integracao completa: interface + banco + regras de negocio + Audit.NET + fusos horarios + indices de performance
 4.0	25/03/2026	Equipe Learly	Perfil Comercial, modulo Pre-Aluno, Contratos dinamicos, Policy-Based Authorization, Super Admin, novas tabelas de permissoes e contratos
+4.1	05/05/2026	Equipe Learly	Atualizacao do estado real da API (Pre-Alunos, Livros e Matriculas), ajuste de schema comercial (sem data_inicio_prevista), e alinhamento de lacunas/roadmap
 
 
 Como usar este documento
@@ -39,8 +40,8 @@ Seccoes 5-6: telas do Professor e do Coordenador com todos os detalhes de interf
 Secao 7: modulo financeiro completo.
 Secao 8: modelo de banco de dados, tabelas, indices e decisoes de arquitetura.
 Secao 9 (Coordenador 6.7): Gestao de Reposicoes.
-Secao 10 (nova): Modulo Comercial — Pre-Aluno e Contratos.
-Secao 11 (nova): Controle de Acesso Avancado — Policy-Based Authorization.
+Secao 9: Modulo Comercial — Pre-Aluno e Contratos (estado atual e roadmap).
+Secao 10: Controle de Acesso Avancado — Policy-Based Authorization.
  
 1. Visao Geral do Sistema
 O Learly e um sistema web de gestao completa para escolas de idiomas. Seu objetivo e centralizar, organizar e automatizar os processos academicos, administrativos e financeiros da instituicao, eliminando controles manuais em planilhas, evitando inconsistencias de dados e garantindo historico auditavel de todas as informacoes.
@@ -1207,25 +1208,32 @@ Login com codigo da escola	Campo adicional no login	Isola autenticacao por escol
 
  
 9. Modulo Comercial — Pre-Aluno e Contratos
-O Modulo Comercial e o ponto de entrada do ciclo de vida de um aluno no sistema. O perfil Comercial e responsavel por captar interessados, registrar fichas de pre-aluno e gerar contratos automaticamente. Somente apos a aprovacao e finalizacao da matricula (pelo perfil Secretaria) o pre-aluno se torna um aluno efetivo no sistema.
+O Modulo Comercial e o ponto de entrada do ciclo de vida de um aluno no sistema. Esta secao foi atualizada para refletir o estado real da API e do frontend em maio/2026.
 
 Separacao entre Pre-Aluno e Aluno
-Pre-Aluno: registro criado pelo Comercial. Contem dados basicos, tipo de contrato, forma de pagamento e observacoes comerciais. NAO aparece nas turmas nem na agenda.
-Aluno: criado pela Secretaria ao finalizar e aprovar a matricula, a partir dos dados do pre-aluno.
+Pre-Aluno: registro criado pelo Comercial. Contem dados cadastrais, comerciais e de transporte. Nao aparece em turmas nem na agenda.
+Aluno: registro academico (modulo Alunos/Matriculas), separado do funil comercial.
 Essa separacao preserva o fluxo comercial sem poluir o sistema academico com registros nao confirmados.
 
 9.1 Perfil Comercial — Permissoes e Acesso
 Permissao (Policy)	Descricao	Perfil
 CRIAR_PRE_ALUNO	Criar e editar fichas de pre-aluno	Comercial, Administrador
 VISUALIZAR_PRE_ALUNO	Ver lista e detalhes de pre-alunos	Comercial, Secretaria, Coordenador, Administrador
-GERAR_CONTRATO	Gerar contrato a partir do template e dados do pre-aluno	Comercial, Administrador
-VISUALIZAR_CONTRATO	Visualizar contratos gerados	Comercial, Secretaria, Coordenador, Administrador
-EDITAR_TEMPLATE_CONTRATO	Editar o modelo base de contrato da escola	Coordenador, Administrador
-FINALIZAR_MATRICULA	Converter pre-aluno em aluno e criar matricula formal	Secretaria, Administrador
+EDITAR_PRE_ALUNO	Atualizar/avancar fluxo de pre-aluno	Comercial, Administrador
 APROVAR_MATRICULA	Aprovar matricula antes da finalizacao	Secretaria, Administrador
+CANCELAR_PRE_ALUNO	Cancelar ficha de pre-aluno	Comercial, Secretaria, Administrador
+GERAR_CONTRATO / VISUALIZAR_CONTRATO / EDITAR_TEMPLATE_CONTRATO	Permissoes catalogadas para evolucao do modulo de contratos	Conforme configuracao de perfil
+FINALIZAR_MATRICULA	Permissao catalogada para etapa de conversao em aluno	Secretaria, Administrador
 
 9.2 Tela de Pre-Alunos
-Acessada pelo menu 'Comercial > Pre-Alunos'. Disponivel para os perfis Comercial, Secretaria e Administrador.
+Acessada pelo menu 'Comercial > Pre-Alunos'. O backend atual exposto em `api/pre-alunos` possui as operacoes:
+- GET `api/pre-alunos/livros-interesse`
+- GET `api/pre-alunos`
+- GET `api/pre-alunos/{id}`
+- POST `api/pre-alunos`
+- PATCH `api/pre-alunos/{id}/submeter-aprovacao`
+- PATCH `api/pre-alunos/{id}/aprovar`
+- PATCH `api/pre-alunos/{id}/cancelar`
 
 9.2.1 Listagem de Pre-Alunos
 Coluna	Descricao
@@ -1234,9 +1242,9 @@ Responsavel	Nome do responsavel financeiro
 Data de cadastro	Data em que a ficha foi criada
 Tipo de contrato	Ex: 6 meses, 12 meses, 24 meses
 Status	Em negociacao | Aguardando aprovacao | Aprovado | Matriculado | Cancelado
-Acoes	Ver detalhes, Gerar contrato, Finalizar matricula (Secretaria), Cancelar
+Acoes (estado atual)	Ver detalhes, Submeter para aprovacao, Aprovar, Cancelar
 
-Filtros disponíveis: por status, por periodo de cadastro, por responsavel pelo cadastro (usuario Comercial).
+Filtros disponiveis no backend atual: por status.
 
 9.2.2 Cadastro de Pre-Aluno
 Botao: + Novo Pre-Aluno
@@ -1263,92 +1271,38 @@ Dados Comerciais e Contratuais
 Campo	Obrigatorio	Descricao
 Tipo de contrato	Sim	Duracao total. Ex: 6 meses, 12 meses, 24 meses
 Valor da mensalidade	Sim	Valor base mensal acordado (R$)
-Forma de pagamento da mensalidade	Sim	PIX, Boleto, Cartao, Dinheiro
-Material didatico — opcao	Sim	A vista (pagamento unico) ou Parcelado (incluso na mensalidade)
+Forma de pagamento da mensalidade	Nao	PIX, Boleto, Cartao, Dinheiro (opcional)
 Valor do material	Nao	Valor total do material didatico por semestre (R$)
-Data prevista de inicio	Sim	Data em que o aluno pretende comecar
+Valor da matricula	Sim	Valor de entrada; pode ser 0
+Forma de pagamento da matricula	Condicional	Obrigatoria quando valor da matricula > 0
+Origem de captacao	Sim	Ex: Indicacao, Instagram, Google, Outros
+Usa transporte van	Sim	Quando verdadeiro, endereco de transporte torna-se obrigatorio
+Observacoes comerciais	Nao	Anotacoes internas
 
-Regra de calculo do material parcelado
-Se opcao de material = 'Parcelado': valor do material / 6 (meses do semestre) = parcela mensal adicional.
-Essa parcela e somada automaticamente ao valor da mensalidade no contrato gerado.
-Exemplo: mensalidade R$290 + material R$180/semestre = R$180/6 = R$30/mes adicional = R$320/mes total.
-Cada semestre tem um valor de material proprio — o calculo e feito por semestre no contrato.
+Regras de validacao principais (estado atual)
+- Data de nascimento obrigatoria e nao futura.
+- Menor de 18 anos nao pode ser proprio responsavel e deve informar responsavel valido.
+- Maior de idade pode ser proprio responsavel, com CPF do aluno e telefone valido.
+- Livro de interesse deve existir e estar ativo na escola.
+- Valor da mensalidade > 0.
+- Tipo de contrato obrigatorio (ate 120 caracteres).
+- Valor de matricula nao pode ser negativo.
+- Forma de pagamento da matricula obrigatoria quando valor de matricula > 0.
+- Origem de captacao obrigatoria (ate 80 caracteres).
+- Se usa van = true, CEP com 8 digitos + endereco completo + UF com 2 letras.
 
-9.3 Contratos — Geracao Automatica
-O sistema possui um mecanismo de geracao de contratos baseado em templates com variaveis dinamicas. O template e cadastrado uma vez pelo Coordenador ou Administrador, e o sistema substitui automaticamente as variaveis com os dados do pre-aluno ao gerar cada contrato.
+9.3 Contratos e Finalizacao de Matricula — estado de implementacao
 
-9.3.1 Template de Contrato
-Acessado pelo menu 'Comercial > Template de Contrato'. Disponivel para Coordenador e Administrador.
+Implementado hoje:
+- Fluxo de pre-aluno ate aprovacao/cancelamento (status: Em negociacao -> Aguardando aprovacao -> Aprovado; ou Cancelado).
+- Catalogo de livros da escola para interesse no cadastro de pre-aluno.
 
-Elemento	Descricao
-Editor de texto rico	Interface tipo Word para editar o modelo base do contrato
-Variaveis dinamicas	Placeholders no formato {{VARIAVEL}} inseridos no texto
-Botao Salvar versao	Cria nova versao do template (versoes anteriores sao preservadas)
-Historico de versoes	Lista das versoes anteriores com data e autor
-Adicionar variavel personalizada	Coordenador pode criar variaveis novas alem das padrao
+Catalogado como permissao/schema, mas pendente de endpoint dedicado nesta API:
+- Geracao e visualizacao de contratos por pre-aluno.
+- Finalizacao de matricula partindo diretamente de `api/pre-alunos`.
 
-9.3.2 Variaveis Dinamicas Padrao
-Variavel	Substituida por	Exemplo de saida
-{{NOME_ALUNO}}	Nome completo do pre-aluno	JOAO DA SILVA
-{{NOME_RESPONSAVEL}}	Nome completo do responsavel	MARIA DA SILVA
-{{CPF_RESPONSAVEL}}	CPF do responsavel	123.456.789-00
-{{VALOR_MENSALIDADE}}	Valor da mensalidade (com material se parcelado)	R$ 320,00
-{{DURACAO_CONTRATO}}	Duracao total do contrato	24 meses
-{{DATA_INICIO}}	Data prevista de inicio	01/05/2026
-{{DATA_TERMINO}}	Data calculada de termino (inicio + duracao)	30/04/2028
-{{LIVRO}}	Nome do livro/nivel contratado	Book 1 Teens
-{{VALOR_MATERIAL}}	Valor do material didatico (se houver)	R$ 180,00
-{{OPCAO_MATERIAL}}	Forma de pagamento do material	Parcelado em 6x de R$ 30,00
-{{DATA_GERACAO}}	Data em que o contrato foi gerado	25/03/2026
-{{ESCOLA_NOME}}	Nome fantasia da escola	CWB Idiomas
-
-9.3.3 Fluxo de Geracao do Contrato
-32.	Comercial acessa o pre-aluno e clica em 'Gerar Contrato'.
-33.	Sistema carrega o template ativo mais recente.
-34.	Sistema substitui todas as variaveis {{...}} com os dados do pre-aluno.
-35.	Exibe preview do contrato gerado em tela para revisao antes de salvar.
-36.	Comercial pode fazer ajustes textuais pontuais no preview (nao altera o template base).
-37.	Ao confirmar: contrato e salvo em contratos_gerados com o conteudo final e a data de geracao.
-38.	Sistema disponibiliza opcoes: Imprimir | Baixar PDF | Enviar por e-mail.
-
-Versao do template no contrato gerado
-Cada contrato gerado registra o ID da versao do template utilizado (contrato_template_versao_id).
-Isso garante rastreabilidade: se o template for editado, os contratos antigos permanecem com o conteudo original.
-O conteudo gerado e armazenado integralmente em contratos_gerados.conteudo_gerado (TEXT) — nao depende do template para ser visualizado.
-
-9.3.4 Estrutura de Contratos por Semestre
-Para contratos de longa duracao (ex: 24 meses = 4 semestres), o contrato exibe uma tabela com a progressao de valores por semestre:
-
-Semestre	Periodo	Mensalidade	Material	Total mensal
-1o semestre	Mai/2026 - Out/2026	R$ 290,00	R$ 30,00 (parcelado)	R$ 320,00
-2o semestre	Nov/2026 - Abr/2027	R$ 290,00	R$ 30,00 (parcelado)	R$ 320,00
-3o semestre	Mai/2027 - Out/2027	R$ 310,00	R$ 30,00 (parcelado)	R$ 340,00
-4o semestre	Nov/2027 - Abr/2028	R$ 310,00	A vista (ja pago)	R$ 310,00
-
-A variavel {{TABELA_SEMESTRES}} e substituida por essa tabela automaticamente no contrato.
-
-9.3.5 Edicao do Contrato pelo Coordenador
-O Coordenador pode editar o template base de contrato a qualquer momento. Cada edicao cria uma nova versao — versoes anteriores sao preservadas para auditoria. O Coordenador tambem pode:
-•	Adicionar ou remover clausulas no texto base.
-•	Criar novas variaveis personalizadas alem das variaveis padrao do sistema.
-•	Definir qual versao e a 'ativa' para novos contratos.
-•	Visualizar contratos ja gerados (somente leitura).
-
-9.4 Finalizacao da Matricula (Fluxo Comercial -> Secretaria)
-Apos o contrato ser gerado e assinado, o fluxo segue para a Secretaria:
-
-39.	Comercial atualiza status do pre-aluno para 'Aguardando aprovacao'.
-40.	Secretaria recebe notificacao/visualiza na listagem de pre-alunos com status 'Aguardando aprovacao'.
-41.	Secretaria revisa os dados e clica em 'Aprovar Matricula' (policy: APROVAR_MATRICULA).
-42.	Status muda para 'Aprovado'.
-43.	Secretaria clica em 'Finalizar Matricula' (policy: FINALIZAR_MATRICULA).
-44.	Sistema executa automaticamente: (a) cria registro em responsaveis, (b) cria registro em alunos, (c) cria registro em matriculas com status = 'Ativo', (d) status do pre-aluno muda para 'Matriculado'.
-45.	Secretaria pode entao vincular o aluno a uma turma pelo modulo de Turmas.
-
-O pre-aluno nunca e excluido
-Apos a finalizacao, o registro em pre_alunos permanece com status = 'Matriculado' e referencia ao aluno_id criado.
-Pre-alunos cancelados ficam com status = 'Cancelado' — nunca sao deletados.
-Todo o ciclo (criacao, alteracoes, geracao de contrato, finalizacao) e registrado em logs_auditoria via Audit.NET.
+Observacao operacional:
+- A conversao para aluno hoje ocorre pelo fluxo de `api/alunos` + `api/matriculas`, nao por endpoint de finalizacao dentro de `api/pre-alunos`.
 
 9.5 Impacto no Banco de Dados — Modulo Comercial
 9.5.1 Nova Tabela: pre_alunos
@@ -1361,12 +1315,21 @@ sobrenome	VARCHAR(100)	NAO	Sobrenome
 data_nascimento	DATE	NAO	Data de nascimento
 telefone	VARCHAR(20)	SIM	Telefone do pre-aluno
 livro_interesse_id	INT FK livros	NAO	Livro/nivel de interesse
-tipo_contrato	VARCHAR(50)	NAO	Ex: 6 meses, 12 meses, 24 meses
+tipo_contrato	VARCHAR(120)	NAO	Ex: 6 meses, 12 meses, 24 meses
 valor_mensalidade	DECIMAL(10,2)	NAO	Valor base da mensalidade acordada
-forma_pagamento	VARCHAR(50)	NAO	PIX, Boleto, Cartao, Dinheiro
-material_opcao	ENUM('A vista','Parcelado')	NAO	Opcao de pagamento do material
+forma_pagamento	VARCHAR(50)	SIM	PIX, Boleto, Cartao, Dinheiro
+valor_matricula	DECIMAL(10,2)	NAO	Valor de entrada no momento da ficha
+forma_pagamento_matricula	VARCHAR(50)	SIM	Obrigatorio quando valor_matricula > 0
 valor_material	DECIMAL(10,2)	SIM	Valor do material por semestre
-data_inicio_prevista	DATE	NAO	Data prevista para inicio das aulas
+origem_captacao	VARCHAR(80)	NAO	Canal/origem do lead
+usa_transporte_van	BOOLEAN	NAO	Indica necessidade de transporte
+transporte_cep	VARCHAR(9)	SIM	CEP do transporte quando usa van = true
+transporte_logradouro	VARCHAR(200)	SIM	Logradouro do transporte
+transporte_numero	VARCHAR(20)	SIM	Numero do transporte
+transporte_complemento	VARCHAR(120)	SIM	Complemento do transporte
+transporte_bairro	VARCHAR(100)	SIM	Bairro do transporte
+transporte_cidade	VARCHAR(100)	SIM	Cidade do transporte
+transporte_uf	CHAR(2)	SIM	UF do transporte
 observacoes_comerciais	TEXT	SIM	Notas internas da equipe comercial
 status	ENUM('Em negociacao','Aguardando aprovacao','Aprovado','Matriculado','Cancelado')	NAO	Status atual no funil comercial
 aluno_id	INT FK alunos	SIM	Preenchido apos finalizacao da matricula

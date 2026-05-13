@@ -1,786 +1,1233 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getCurrentUser } from "@/lib/api/auth";
+import {
+  criarPreAluno,
+  getApiErrorMessage,
+  cancelarPreAluno,
+  listarLivrosInteressePreAluno,
+  listarPreAlunos,
+  submeterPreAlunoParaAprovacao,
+  aprovarMatricula,
+} from "@/lib/api";
+import { hasPermission } from "@/lib/permissions";
+import type { User } from "@/lib/api/types";
+import type { CriarPreAlunoPayload, LivroInteresseOpcao, PreAlunoListItem, PreAlunoStatus } from "@/types/comercial";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Modal, useModalRequestClose } from "@/components/ui/modal";
+import { buscarEnderecoPorCep } from "@/lib/viacep";
+import { applyBrazilMask, digitsOnly } from "@/utils";
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-type EstagioFunil = "NOVO" | "NEGOCIACAO" | "APROVADO" | "CANCELADO";
+const SELECT_FIELD =
+  "h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/20";
 
-interface Anexo {
-  id: number;
-  tipo: string;
-  nomeArquivo: string;
-  data: string;
+function formatMoney(n: number): string {
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-interface ValorSemestre {
-  semestre: number;
-  mensalidade: string;
-  material: string;
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("pt-BR");
 }
 
-interface Lead {
-  id: number;
-  nome: string;
-  telefone: string;
-  email: string;
-  interesse: string;
-  estagio: EstagioFunil;
-  dataRegistro: string;
-  observacoes: string;
-  
-  // Dados para Contrato / Matrícula
-  maiorDeIdade: boolean;
-  cpf: string;
-  rg: string;
-  dataNascimento: string;
-  cep: string;
-  logradouro: string;
-  numero: string;
-  bairro: string;
-  cidade: string;
-  
-  // Responsável (Se menor de idade)
-  nomeResponsavel: string;
-  cpfResponsavel: string;
-  telefoneResponsavel: string;
+const STATUS_META: Record<PreAlunoStatus, { label: string }> = {
+  "Em negociacao": { label: "Em negociação" },
+  "Aguardando aprovacao": { label: "Aguardando aprovação" },
+  Aprovado: { label: "Aprovado" },
+  Matriculado: { label: "Matriculado" },
+  Cancelado: { label: "Cancelado" },
+};
 
-  // Valores Financeiros Acordados (Dinâmico por Semestre)
-  tempoContrato: number; 
-  valoresDiferentes: boolean;
-  valorMensalidade: string; 
-  valorMaterial: string;    
-  valores: ValorSemestre[]; 
-
-  // Documentos Anexados
-  anexos: Anexo[];
-
-  // 👇 NOVO: Controle de devolução da Secretaria 👇
-  devolvidoSecretaria?: boolean;
-  motivoDevolucao?: string;
-}
-
-// ─── Mock de Dados ────────────────────────────────────────────────────────────
-const leadsMockIniciais: Lead[] = [
-  { 
-    id: 1, nome: "Mariana Costa", telefone: "(11) 98888-1111", email: "mariana@email.com", interesse: "Book 1 (Iniciante)", estagio: "NOVO", dataRegistro: "20/03/2026", observacoes: "Entrou em contato pelo Instagram.",
-    maiorDeIdade: true, cpf: "", rg: "", dataNascimento: "", cep: "", logradouro: "", numero: "", bairro: "", cidade: "", nomeResponsavel: "", cpfResponsavel: "", telefoneResponsavel: "", 
-    tempoContrato: 0, valoresDiferentes: false, valorMensalidade: "", valorMaterial: "", valores: [], anexos: []
-  },
-  { 
-    id: 4, nome: "João Pedro Alves", telefone: "(31) 95555-4444", email: "jp.alves@email.com", interesse: "Book 2 (Intermediário)", estagio: "APROVADO", dataRegistro: "10/03/2026", observacoes: "Aceitou os valores e os horários.",
-    maiorDeIdade: true, cpf: "123.456.789-00", rg: "12.345.678-9", dataNascimento: "15/05/1998", cep: "01000-000", logradouro: "Rua das Flores", numero: "123", bairro: "Centro", cidade: "São Paulo", nomeResponsavel: "João Pedro Alves", cpfResponsavel: "123.456.789-00", telefoneResponsavel: "(31) 95555-4444", 
-    tempoContrato: 12, valoresDiferentes: true, valorMensalidade: "", valorMaterial: "",
-    valores: [
-      { semestre: 1, mensalidade: "250,00", material: "300,00" },
-      { semestre: 2, mensalidade: "270,00", material: "0,00" }
-    ], 
-    anexos: [
-      { id: 1, tipo: "Contrato Assinado", nomeArquivo: "contrato_assinado.pdf", data: "11/03/2026" },
-      { id: 2, tipo: "Comprovante de Pagamento (Matrícula)", nomeArquivo: "pix.png", data: "11/03/2026" }
-    ]
-  },
-  // 👇 NOVO: Exemplo de Lead Devolvido pela Secretaria 👇
-  { 
-    id: 5, nome: "Carlos Eduardo", telefone: "(41) 91111-2222", email: "carlos@email.com", interesse: "Book 1 (Iniciante)", estagio: "APROVADO", dataRegistro: "24/03/2026", observacoes: "Enviado ontem, mas a secretaria devolveu.",
-    maiorDeIdade: true, cpf: "111.222.333-44", rg: "", dataNascimento: "10/10/2000", cep: "80000-000", logradouro: "Rua X", numero: "10", bairro: "Centro", cidade: "Curitiba", nomeResponsavel: "", cpfResponsavel: "", telefoneResponsavel: "", 
-    tempoContrato: 6, valoresDiferentes: false, valorMensalidade: "200,00", valorMaterial: "150,00", valores: [], 
-    anexos: [
-      { id: 3, tipo: "Contrato Assinado", nomeArquivo: "contrato.pdf", data: "24/03/2026" }
-    ],
-    devolvidoSecretaria: true, 
-    motivoDevolucao: "Falta anexar o comprovante de pagamento da matrícula. O arquivo do contrato também está ilegível na página 2. Por favor, reenvie."
-  },
+const FILTROS_STATUS: Array<{ value: string; label: string }> = [
+  { value: "", label: "Todos" },
+  { value: "Em negociacao", label: STATUS_META["Em negociacao"].label },
+  { value: "Aguardando aprovacao", label: STATUS_META["Aguardando aprovacao"].label },
+  { value: "Aprovado", label: STATUS_META.Aprovado.label },
+  { value: "Matriculado", label: STATUS_META.Matriculado.label },
+  { value: "Cancelado", label: STATUS_META.Cancelado.label },
 ];
 
-const ESTAGIOS: { key: EstagioFunil; label: string; cor: string; bg: string }[] = [
-  { key: "NOVO", label: "Novos Contatos", cor: "text-blue-700", bg: "bg-blue-100" },
-  { key: "NEGOCIACAO", label: "Em Negociação", cor: "text-amber-700", bg: "bg-amber-100" },
-  { key: "APROVADO", label: "Contrato / Aprovado", cor: "text-green-700", bg: "bg-green-100" },
-];
+type PassoCadastroPreAluno = "aluno" | "responsavel" | "comercial";
+type OpcaoRespAdulto = "proprio" | "outro" | null;
 
-const TIPOS_ANEXO = [
-  "Contrato Assinado",
-  "Comprovante de Pagamento (Matrícula)",
-  "Ficha de Inscrição",
-  "Conversa de WhatsApp",
-  "Documento Pessoal (RG/CPF)",
-  "Outros"
-];
-
-// ─── Componentes Auxiliares ───────────────────────────────────────────────────
-interface CampoProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label: string;
+/** Idade em anos completos em relação ao dia atual (calendário local do navegador). */
+function calcularIdadeAnosDoDia(dataIso: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataIso.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const now = new Date();
+  const ty = now.getFullYear();
+  const tm = now.getMonth() + 1;
+  const td = now.getDate();
+  let idade = ty - y;
+  if (tm < mo || (tm === mo && td < d)) idade--;
+  return idade;
 }
 
-function Campo({ label, className, ...props }: CampoProps) {
+const ORIGEM_CAPTACAO_OPCOES = [
+  "Indicação",
+  "Redes sociais",
+  "Site ou lead digital",
+  "Ativo / Ligação outbound",
+  "Evento ou feira",
+  "Passou na frente / outdoor",
+  "Parceria",
+  "Google / busca",
+  "Outro",
+] as const;
+
+const FORMAS_PAGAMENTO_OPCOES = ["PIX", "Boleto", "Cartão", "Dinheiro", "Outro"] as const;
+
+const emptyPayload: CriarPreAlunoPayload = {
+  eProprioResponsavel: false,
+  alunoCpf: "",
+  responsavelTipoPessoa: "Fisica",
+  responsavelCpfCnpj: "",
+  responsavelNome: "",
+  responsavelSobrenome: "",
+  responsavelTelefone: "",
+  nome: "",
+  sobrenome: "",
+  dataNascimento: "",
+  telefoneAluno: "",
+  livroInteresseId: 0,
+  tipoContrato: "",
+  valorMensalidade: 0,
+  formaPagamento: "",
+  valorMatricula: 0,
+  formaPagamentoMatricula: "",
+  valorMaterial: 0,
+  origemCaptacao: "",
+  usaTransporteVan: false,
+  transporteCep: "",
+  transporteLogradouro: "",
+  transporteNumero: "",
+  transporteComplemento: "",
+  transporteBairro: "",
+  transporteCidade: "",
+  transporteUf: "",
+  observacoesComerciais: "",
+};
+
+function serializarModalPreAlunoEstado(p: {
+  form: CriarPreAlunoPayload;
+  passo: PassoCadastroPreAluno;
+  tipo: OpcaoRespAdulto;
+  contratoEmMesesLista: boolean;
+  mesesContrato: 6 | 12 | 18 | 24;
+  contratoTextoManual: string;
+}) {
+  return JSON.stringify(p);
+}
+
+function PreAlunoCancelarBtn({ disabled }: { disabled?: boolean }) {
+  const requestClose = useModalRequestClose();
   return (
-    <div className="flex flex-col gap-1.5 w-full">
-      <label className="text-sm font-medium text-zinc-700">{label}</label>
-      <input 
-        {...props}
-        className={`h-10 w-full border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/10 transition disabled:bg-zinc-50 disabled:text-zinc-500 ${className || ''}`} 
-      />
-    </div>
+    <Button type="button" variant="secondary" onClick={requestClose} disabled={disabled}>
+      Cancelar
+    </Button>
   );
 }
 
-// ─── Modal Novo Lead ──────────────────────────────────────────────────────────
-function ModalNovoLead({ onClose, onSave }: { onClose: () => void, onSave: (lead: Partial<Lead>) => void }) {
-  const [form, setForm] = useState({ nome: "", telefone: "", email: "", interesse: "", observacoes: "" });
+export default function ComercialPage() {
+  const [user, setUser] = useState<User | null>(null);
+  const [lista, setLista] = useState<PreAlunoListItem[]>([]);
+  const [livros, setLivros] = useState<LivroInteresseOpcao[]>([]);
+  const [filtroStatus, setFiltroStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [modalNovo, setModalNovo] = useState(false);
+  const [preAlunoModalBaseline, setPreAlunoModalBaseline] = useState("");
+  const [formNovo, setFormNovo] = useState<CriarPreAlunoPayload>(() => ({ ...emptyPayload }));
+  const [passoCadastro, setPassoCadastro] = useState<PassoCadastroPreAluno>("aluno");
+  const [tipoResponsavelAdulto, setTipoResponsavelAdulto] = useState<OpcaoRespAdulto>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [contratoEmMesesLista, setContratoEmMesesLista] = useState(true);
+  const [mesesContrato, setMesesContrato] = useState<6 | 12 | 18 | 24>(12);
+  const [contratoTextoManual, setContratoTextoManual] = useState("");
+  const [cepVanBuscando, setCepVanBuscando] = useState(false);
+
+  const idadePreAluno = useMemo(() => calcularIdadeAnosDoDia(formNovo.dataNascimento), [formNovo.dataNascimento]);
+  const menorDeIdade = idadePreAluno !== null && idadePreAluno < 18;
+  const maiorOu18 = idadePreAluno !== null && idadePreAluno >= 18;
+
+  useEffect(() => {
+    if (!modalNovo) setPreAlunoModalBaseline("");
+  }, [modalNovo]);
+
+  const preAlunoModalEstadoAtual = useMemo(
+    () =>
+      serializarModalPreAlunoEstado({
+        form: formNovo,
+        passo: passoCadastro,
+        tipo: tipoResponsavelAdulto,
+        contratoEmMesesLista,
+        mesesContrato,
+        contratoTextoManual,
+      }),
+    [
+      formNovo,
+      passoCadastro,
+      tipoResponsavelAdulto,
+      contratoEmMesesLista,
+      mesesContrato,
+      contratoTextoManual,
+    ],
+  );
+
+  const preAlunoModalTemAlteracao =
+    modalNovo &&
+    !salvando &&
+    preAlunoModalBaseline !== "" &&
+    preAlunoModalEstadoAtual !== preAlunoModalBaseline;
+
+  const podeCriar = user ? hasPermission(user, "CRIAR_PRE_ALUNO") : false;
+  const podeEditarOuCriarFicha = user
+    ? hasPermission(user, "CRIAR_PRE_ALUNO") || hasPermission(user, "EDITAR_PRE_ALUNO")
+    : false;
+  const podeCancelar = user ? hasPermission(user, "CANCELAR_PRE_ALUNO") : false;
+  const podeAprovar = user ? hasPermission(user, "APROVAR_MATRICULA") : false;
+
+  useEffect(() => {
+    void getCurrentUser().then(setUser).catch(() => setUser(null));
+  }, []);
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [pa, liv] = await Promise.all([
+        listarPreAlunos(filtroStatus.trim() ? { status: filtroStatus.trim() } : undefined),
+        listarLivrosInteressePreAluno(),
+      ]);
+      setLista(pa);
+      setLivros(liv);
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Falha ao carregar dados do comercial."));
+    } finally {
+      setLoading(false);
+    }
+  }, [filtroStatus]);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  function resolverTipoContrato(): string {
+    if (contratoEmMesesLista) return `${mesesContrato} meses`;
+    return contratoTextoManual.trim();
+  }
+
+  const abrirNovo = () => {
+    setFormNovo({ ...emptyPayload });
+    setContratoEmMesesLista(true);
+    setMesesContrato(12);
+    setContratoTextoManual("");
+    setPassoCadastro("aluno");
+    setTipoResponsavelAdulto(null);
+    setPreAlunoModalBaseline(
+      serializarModalPreAlunoEstado({
+        form: { ...emptyPayload },
+        passo: "aluno",
+        tipo: null,
+        contratoEmMesesLista: true,
+        mesesContrato: 12,
+        contratoTextoManual: "",
+      }),
+    );
+    setModalNovo(true);
+  };
+
+  const fecharModalNovo = () => {
+    setModalNovo(false);
+    setPassoCadastro("aluno");
+    setTipoResponsavelAdulto(null);
+  };
+
+  const buscarCepTransporteVan = async () => {
+    setCepVanBuscando(true);
+    try {
+      const r = await buscarEnderecoPorCep(formNovo.transporteCep ?? "");
+      const logApi = r.logradouro.trim();
+      const montado =
+        logApi !== ""
+          ? `${r.tipoLogradouro} ${logApi}`
+              .replace(/\s+/g, " ")
+              .trim()
+              .replace(/^Outro\s+/, "")
+              .trim()
+          : "";
+
+      setFormNovo((p) => ({
+        ...p,
+        transporteCep: digitsOnly(r.cepFormatado, 8),
+        transporteLogradouro: montado !== "" ? montado : p.transporteLogradouro,
+        transporteBairro: r.bairro !== "" ? r.bairro : p.transporteBairro,
+        transporteCidade: r.municipio !== "" ? r.municipio : p.transporteCidade,
+        transporteUf: r.uf !== "" ? r.uf : (p.transporteUf ?? ""),
+        transporteComplemento:
+          r.complemento.trim() !== "" ? r.complemento : (p.transporteComplemento ?? ""),
+      }));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Não foi possível buscar o CEP.");
+    } finally {
+      setCepVanBuscando(false);
+    }
+  };
+
+  const avancarEtapaAluno = () => {
+    if (
+      !formNovo.nome.trim()
+      || !formNovo.sobrenome.trim()
+      || !formNovo.dataNascimento
+      || idadePreAluno === null
+      || !formNovo.livroInteresseId
+    ) {
+      return;
+    }
+
+    setPassoCadastro("responsavel");
+    setTipoResponsavelAdulto(null);
+
+    setFormNovo((p) => ({
+      ...p,
+      eProprioResponsavel: false,
+      alunoCpf: "",
+      responsavelNome: "",
+      responsavelSobrenome: "",
+      responsavelCpfCnpj: "",
+      responsavelTelefone: "",
+      responsavelTipoPessoa: "Fisica",
+    }));
+  };
+
+  const escolherProprioResponsavel = () => {
+    setTipoResponsavelAdulto("proprio");
+    setFormNovo((p) => ({
+      ...p,
+      eProprioResponsavel: true,
+      alunoCpf: "",
+      responsavelTipoPessoa: "Fisica",
+      responsavelCpfCnpj: "",
+      responsavelNome: "",
+      responsavelSobrenome: "",
+      responsavelTelefone: "",
+    }));
+  };
+
+  const escolherOutroResponsavel = () => {
+    setTipoResponsavelAdulto("outro");
+    setFormNovo((p) => ({
+      ...p,
+      eProprioResponsavel: false,
+      alunoCpf: "",
+    }));
+  };
+
+  const salvarNovo = async () => {
+    const telA = digitsOnly(formNovo.telefoneAluno ?? "");
+    const usarProprio = maiorOu18 && formNovo.eProprioResponsavel;
+    const docResp = digitsOnly(formNovo.responsavelCpfCnpj);
+    const telR = digitsOnly(formNovo.responsavelTelefone);
+    const cpfAlunoDigits = digitsOnly(formNovo.alunoCpf ?? "");
+
+    const valorMat = formNovo.valorMaterial ?? 0;
+    const transp = formNovo.usaTransporteVan
+      ? {
+          transporteCep: digitsOnly(formNovo.transporteCep ?? "", 8),
+          transporteLogradouro: formNovo.transporteLogradouro?.trim() ?? "",
+          transporteNumero: formNovo.transporteNumero?.trim() ?? "",
+          transporteComplemento:
+            formNovo.transporteComplemento?.trim() !== "" ? formNovo.transporteComplemento?.trim() : null,
+          transporteBairro: formNovo.transporteBairro?.trim() ?? "",
+          transporteCidade: formNovo.transporteCidade?.trim() ?? "",
+          transporteUf: (formNovo.transporteUf ?? "").trim().toUpperCase(),
+        }
+      : {
+          transporteCep: null,
+          transporteLogradouro: null,
+          transporteNumero: null,
+          transporteComplemento: null,
+          transporteBairro: null,
+          transporteCidade: null,
+          transporteUf: null,
+        };
+
+    const baseComercial = {
+      ...formNovo,
+      tipoContrato: resolverTipoContrato(),
+      valorMaterial: valorMat,
+      formaPagamento: formNovo.formaPagamento?.trim() !== "" ? formNovo.formaPagamento!.trim() : null,
+      formaPagamentoMatricula:
+        formNovo.valorMatricula > 0 ? formNovo.formaPagamentoMatricula?.trim() || null : null,
+      observacoesComerciais:
+        formNovo.observacoesComerciais?.trim() !== "" ? formNovo.observacoesComerciais?.trim() : null,
+      origemCaptacao: formNovo.origemCaptacao.trim(),
+      ...transp,
+    };
+
+    const payload: CriarPreAlunoPayload = usarProprio
+      ? {
+          ...baseComercial,
+          eProprioResponsavel: true,
+          alunoCpf: cpfAlunoDigits,
+          responsavelTipoPessoa: "Fisica",
+          responsavelCpfCnpj: "",
+          responsavelNome: "",
+          responsavelSobrenome: "",
+          responsavelTelefone: "",
+          telefoneAluno: telA.length >= 10 ? telA : null,
+        }
+      : {
+          ...baseComercial,
+          eProprioResponsavel: false,
+          alunoCpf: null,
+          responsavelCpfCnpj: docResp,
+          responsavelTelefone: telR,
+          telefoneAluno: telA.length >= 10 ? telA : null,
+        };
+
+    setSalvando(true);
+    setError(null);
+    try {
+      await criarPreAluno(payload);
+      fecharModalNovo();
+      await carregar();
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Nao foi possivel criar o pre-aluno."));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const onSubmeter = async (row: PreAlunoListItem) => {
+    if (!confirm(`Enviar "${row.nomeCompletoAluno}" para aprovacao da secretaria?`)) return;
+    setError(null);
+    try {
+      await submeterPreAlunoParaAprovacao(row.id);
+      await carregar();
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Falha ao enviar para aprovacao."));
+    }
+  };
+
+  const onAprovar = async (row: PreAlunoListItem) => {
+    if (!confirm(`Aprovar pre-aluno "${row.nomeCompletoAluno}"?`)) return;
+    setError(null);
+    try {
+      await aprovarMatricula(row.id);
+      await carregar();
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Falha ao aprovar."));
+    }
+  };
+
+  const onCancelar = async (row: PreAlunoListItem) => {
+    if (!confirm(`Cancelar pre-aluno "${row.nomeCompletoAluno}"? Esta acao nao remove o registro do historico.`)) return;
+    setError(null);
+    try {
+      await cancelarPreAluno(row.id);
+      await carregar();
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Falha ao cancelar."));
+    }
+  };
+
+  const etapaAlunoValida = Boolean(
+    formNovo.nome.trim()
+      && formNovo.sobrenome.trim()
+      && formNovo.dataNascimento
+      && idadePreAluno !== null
+      && formNovo.livroInteresseId > 0,
+  );
+
+  const etapaResponsavelValida = useMemo(() => {
+    const telAlunoDig = digitsOnly(formNovo.telefoneAluno ?? "");
+    const cpfProprioDig = digitsOnly(formNovo.alunoCpf ?? "");
+    const docOutroDig = digitsOnly(formNovo.responsavelCpfCnpj);
+    const telOutroDig = digitsOnly(formNovo.responsavelTelefone);
+
+    if (menorDeIdade) {
+      const okDoc =
+        formNovo.responsavelTipoPessoa === "Fisica" ? docOutroDig.length === 11 : docOutroDig.length === 14;
+      return (
+        okDoc
+        && telOutroDig.length >= 10
+        && formNovo.responsavelNome.trim().length > 0
+        && formNovo.responsavelSobrenome.trim().length > 0
+      );
+    }
+
+    if (tipoResponsavelAdulto === "proprio") {
+      return cpfProprioDig.length === 11 && telAlunoDig.length >= 10;
+    }
+
+    if (tipoResponsavelAdulto === "outro") {
+      const okDoc =
+        formNovo.responsavelTipoPessoa === "Fisica" ? docOutroDig.length === 11 : docOutroDig.length === 14;
+      return (
+        okDoc
+        && telOutroDig.length >= 10
+        && formNovo.responsavelNome.trim().length > 0
+        && formNovo.responsavelSobrenome.trim().length > 0
+      );
+    }
+
+    return false;
+  }, [
+    menorDeIdade,
+    tipoResponsavelAdulto,
+    formNovo.telefoneAluno,
+    formNovo.alunoCpf,
+    formNovo.responsavelCpfCnpj,
+    formNovo.responsavelTelefone,
+    formNovo.responsavelNome,
+    formNovo.responsavelSobrenome,
+    formNovo.responsavelTipoPessoa,
+  ]);
+
+  const tipoContratoResolvido = useMemo(
+    () => (contratoEmMesesLista ? `${mesesContrato} meses` : contratoTextoManual.trim()),
+    [contratoEmMesesLista, mesesContrato, contratoTextoManual],
+  );
+
+  const etapaComercialValida = useMemo(() => {
+    const cepOk = digitsOnly(formNovo.transporteCep ?? "").length === 8;
+    const endBasico =
+      Boolean(formNovo.transporteLogradouro?.trim())
+      && Boolean(formNovo.transporteNumero?.trim())
+      && Boolean(formNovo.transporteBairro?.trim())
+      && Boolean(formNovo.transporteCidade?.trim())
+      && (formNovo.transporteUf ?? "").trim().length === 2;
+    const vanOk = !formNovo.usaTransporteVan ? true : cepOk && endBasico;
+
+    const matriculaPgtoOk = formNovo.valorMatricula <= 0 || Boolean(formNovo.formaPagamentoMatricula?.trim());
+
+    return Boolean(
+      formNovo.valorMensalidade > 0
+        && tipoContratoResolvido.length > 0
+        && tipoContratoResolvido.length <= 120
+        && formNovo.origemCaptacao.trim().length > 0
+        && matriculaPgtoOk
+        && vanOk,
+    );
+  }, [
+    formNovo.transporteCep,
+    formNovo.transporteLogradouro,
+    formNovo.transporteNumero,
+    formNovo.transporteBairro,
+    formNovo.transporteCidade,
+    formNovo.transporteUf,
+    formNovo.usaTransporteVan,
+    formNovo.valorMensalidade,
+    formNovo.origemCaptacao,
+    formNovo.valorMatricula,
+    formNovo.formaPagamentoMatricula,
+    tipoContratoResolvido,
+  ]);
+
+  const podeSalvarTudo =
+    etapaAlunoValida && etapaResponsavelValida && etapaComercialValida;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
-          <h2 className="text-base font-semibold text-zinc-900">Cadastrar Novo Pré-aluno</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-zinc-900">Comercial · Pré-alunos</h1>
+          <p className="text-sm text-zinc-500">
+            Cadastre fichas conforme o manual: após o contrato, envie para a secretaria aprovar.
+          </p>
         </div>
-        <div className="p-6 flex flex-col gap-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800 mb-2">
-            No primeiro contato, cadastre apenas o básico. Os dados de contrato podem ser preenchidos depois na fase de negociação.
-          </div>
-          <Campo label="Nome Completo *" value={form.nome} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, nome: e.target.value})} required />
-          <div className="grid grid-cols-2 gap-4">
-            <Campo label="Telefone / WhatsApp *" value={form.telefone} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, telefone: e.target.value})} required />
-            <Campo label="E-mail" type="email" value={form.email} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, email: e.target.value})} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Curso de Interesse *</label>
-            <select value={form.interesse} onChange={(e) => setForm({...form, interesse: e.target.value})} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35] bg-white">
-              <option value="">Selecione...</option>
-              <option value="Book 1 (Iniciante)">Book 1 (Iniciante)</option>
-              <option value="Book 2 (Intermediário)">Book 2 (Intermediário)</option>
-              <option value="Book 3 (Avançado)">Book 3 (Avançado)</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Observações (Opcional)</label>
-            <textarea value={form.observacoes} onChange={(e) => setForm({...form, observacoes: e.target.value})} rows={3} className="border border-zinc-300 rounded-lg p-3 text-sm outline-none focus:border-[#1F2A35] resize-none" placeholder="Ex: Tem disponibilidade apenas à noite." />
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200 bg-zinc-50 rounded-b-xl">
-          <button onClick={onClose} className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 bg-white rounded-lg hover:bg-zinc-50 transition-colors">Cancelar</button>
-          <button disabled={!form.nome || !form.telefone || !form.interesse} onClick={() => { onSave(form); onClose(); }} className="h-9 px-4 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">Salvar Pré-aluno</button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => void carregar()} isLoading={loading}>
+            Atualizar
+          </Button>
+          {podeCriar && (
+            <Button onClick={abrirNovo}>Novo pré-aluno</Button>
+          )}
         </div>
       </div>
-    </div>
-  );
-}
 
-// ─── Modal Detalhes do Lead (COM AVISO DE DEVOLUÇÃO) ──────────────────────────
-function ModalDetalhesLead({ lead, onClose, onSave, onGerarContrato, onEnviarSecretaria }: { lead: Lead, onClose: () => void, onSave: (lead: Lead) => void, onGerarContrato: (lead: Lead) => void, onEnviarSecretaria: (lead: Lead) => void }) {
-  const [form, setForm] = useState<Lead>(lead);
-  const [abaAtual, setAbaAtual] = useState<"contato" | "contrato" | "anexos">("contato");
+      <Card className="p-4">
+        <label className="text-sm font-medium text-zinc-700">Filtrar por status</label>
+        <select
+          value={filtroStatus}
+          onChange={(e) => setFiltroStatus(e.target.value)}
+          className={`mt-1.5 max-w-xs ${SELECT_FIELD}`}
+        >
+          {FILTROS_STATUS.map((f) => (
+            <option key={f.value || "all"} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+      </Card>
 
-  const [tipoAnexoSelecionado, setTipoAnexoSelecionado] = useState(TIPOS_ANEXO[0]);
-  const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
-
-  function handleTempoChange(meses: number) {
-    const numSemestres = meses / 6;
-    setForm(prev => {
-      const novosValores = [...prev.valores];
-      if (numSemestres > novosValores.length) {
-        for (let i = novosValores.length; i < numSemestres; i++) {
-          novosValores.push({ semestre: i + 1, mensalidade: prev.valorMensalidade, material: prev.valorMaterial });
-        }
-      } else if (numSemestres < novosValores.length) {
-        novosValores.splice(numSemestres);
-      }
-      return { ...prev, tempoContrato: meses, valores: novosValores };
-    });
-  }
-
-  function handleValorSemestreChange(index: number, campo: keyof ValorSemestre, valor: string) {
-    setForm(prev => {
-      const novosValores = [...prev.valores];
-      novosValores[index] = { ...novosValores[index], [campo]: valor };
-      return { ...prev, valores: novosValores };
-    });
-  }
-
-  // Verifica dados do Contrato
-  let valoresPreenchidos = false;
-  if (form.tempoContrato > 0) {
-    if (form.valoresDiferentes) {
-      valoresPreenchidos = form.valores.length > 0 && form.valores.every(v => v.mensalidade.trim() !== "");
-    } else {
-      valoresPreenchidos = form.valorMensalidade.trim() !== "";
-    }
-  }
-
-  const dadosContratoProntos = form.cpf && form.logradouro && form.cidade && valoresPreenchidos;
-  
-  const temContratoAssinado = form.anexos.some(a => a.tipo === "Contrato Assinado");
-  const temComprovantePagto = form.anexos.some(a => a.tipo === "Comprovante de Pagamento (Matrícula)");
-  const anexosProntos = temContratoAssinado && temComprovantePagto;
-
-  function handleUpload() {
-    if (!arquivoUpload) return;
-    const novoAnexo: Anexo = {
-      id: Date.now(),
-      tipo: tipoAnexoSelecionado,
-      nomeArquivo: arquivoUpload.name,
-      data: new Date().toLocaleDateString('pt-BR')
-    };
-    setForm(prev => ({ ...prev, anexos: [novoAnexo, ...prev.anexos] }));
-    setArquivoUpload(null);
-  }
-
-  function removerAnexo(id: number) {
-    setForm(prev => ({ ...prev, anexos: prev.anexos.filter(a => a.id !== id) }));
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 flex flex-col max-h-[95vh]">
-        
-        <div className="flex flex-col border-b border-zinc-200 sticky top-0 bg-white rounded-t-xl z-10">
-          <div className="flex items-center justify-between px-6 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-zinc-900">Gestão do Pré-aluno: <span className="text-[#1F2A35]">{lead.nome}</span></h2>
-              <p className="text-xs text-zinc-500 mt-0.5">Registrado em {lead.dataRegistro}</p>
-            </div>
-            <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 transition-colors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-          </div>
-
-          {/* 👇 NOVO: ALERTA DE DEVOLUÇÃO DA SECRETARIA 👇 */}
-          {form.devolvidoSecretaria && (
-            <div className="bg-red-50 border-y border-red-200 px-6 py-3 flex gap-3 items-start">
-              <svg className="text-red-600 mt-0.5 shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              <div>
-                <h4 className="text-sm font-bold text-red-800">Devolvido pela Secretaria</h4>
-                <p className="text-sm text-red-700 mt-0.5"><strong>Motivo:</strong> {form.motivoDevolucao}</p>
-                <p className="text-xs text-red-600 mt-1">Corrija o problema (Ex: altere os dados ou reanexe o documento) e clique em &quot;Enviar para Secretaria&quot; novamente.</p>
-              </div>
-            </div>
-          )}
-          
-          <div className="flex px-6 gap-6 border-t border-zinc-100">
-            <button onClick={() => setAbaAtual("contato")} className={`py-3 text-sm font-medium border-b-2 transition-colors ${abaAtual === "contato" ? "border-[#1F2A35] text-[#1F2A35]" : "border-transparent text-zinc-500 hover:text-zinc-700"}`}>
-              1. Negociação
-            </button>
-            <button onClick={() => setAbaAtual("contrato")} className={`py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${abaAtual === "contrato" ? "border-[#1F2A35] text-[#1F2A35]" : "border-transparent text-zinc-500 hover:text-zinc-700"}`}>
-              2. Dados & Valores
-              {!dadosContratoProntos && <span className="w-2 h-2 rounded-full bg-red-500" title="Dados pendentes para contrato"></span>}
-            </button>
-            <button onClick={() => setAbaAtual("anexos")} className={`py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${abaAtual === "anexos" ? "border-green-600 text-green-700" : "border-transparent text-zinc-500 hover:text-zinc-700"}`}>
-              3. Anexos & Envio
-              {!anexosProntos && <span className="w-2 h-2 rounded-full bg-amber-500" title="Anexos obrigatórios pendentes"></span>}
-            </button>
-          </div>
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
-        
-        <div className="p-6 flex flex-col gap-5 overflow-y-auto bg-zinc-50/30">
-          
-          {/* ABA 1: NEGOCIAÇÃO */}
-          {abaAtual === "contato" && (
-            <div className="flex flex-col gap-6">
-              <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm">
-                <label className="text-sm font-bold text-zinc-800 block mb-3">Estágio no Funil de Vendas</label>
-                <div className="flex gap-2">
-                  {ESTAGIOS.map((est) => (
-                    <button
-                      key={est.key}
-                      onClick={() => setForm({ ...form, estagio: est.key })}
-                      className={`flex-1 h-10 rounded-md text-xs font-bold transition-all border ${
-                        form.estagio === est.key 
-                          ? `${est.bg} ${est.cor} border-transparent shadow-sm scale-[1.02]` 
-                          : "bg-zinc-50 text-zinc-500 border-zinc-200 hover:bg-zinc-100"
-                      }`}
-                    >
-                      {est.label}
-                    </button>
-                  ))}
+      )}
+
+      <Card>
+        <CardHeader className="mb-2">
+          <CardTitle className="text-base">Lista ({lista.length})</CardTitle>
+        </CardHeader>
+        <div className="overflow-x-auto rounded-lg border border-zinc-100">
+          <table className="w-full min-w-[960px] text-sm">
+            <thead>
+              <tr className="border-b border-zinc-200 bg-zinc-50/80 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <th className="px-4 py-3">Pré-aluno</th>
+                <th className="px-4 py-3">Responsável</th>
+                <th className="px-4 py-3">Livro</th>
+                <th className="px-4 py-3">Contrato / valor</th>
+                <th className="px-4 py-3">Cadastro</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loading && lista.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-zinc-400">
+                    Nenhum pré-aluno encontrado.
+                  </td>
+                </tr>
+              ) : (
+                lista.map((row) => {
+                  const st = STATUS_META[row.status] ?? STATUS_META["Em negociacao"];
+                  const badgeVariant =
+                    row.status === "Cancelado"
+                      ? "danger"
+                      : row.status === "Aprovado" || row.status === "Matriculado"
+                        ? "success"
+                        : row.status === "Em negociacao"
+                          ? "warning"
+                          : "info";
+                  return (
+                    <tr key={row.id} className="border-b border-zinc-100 last:border-b-0 hover:bg-zinc-50/80">
+                      <td className="px-4 py-3 font-medium text-zinc-900">{row.nomeCompletoAluno}</td>
+                      <td className="px-4 py-3 text-zinc-700">{row.nomeCompletoResponsavel}</td>
+                      <td className="px-4 py-3 text-zinc-600">{row.nomeLivroInteresse}</td>
+                      <td className="px-4 py-3 text-zinc-600">
+                        <div>{row.tipoContrato}</div>
+                        <div className="text-xs text-zinc-500 space-y-0.5">
+                          <div>
+                            {formatMoney(row.valorMensalidade)} / mensalidade
+                            {row.formaPagamento ? <> · pagamento mensalidade: {row.formaPagamento}</> : <> · mensalidade: pgto não informado</>}
+                          </div>
+                          <div>
+                            Matrícula: {formatMoney(row.valorMatricula)} ·                             Livro/material:{" "}
+                            {row.valorMaterial == null ? "—" : formatMoney(Number(row.valorMaterial))} · Origem:{" "}
+                            {row.origemCaptacao}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-zinc-500">{formatDate(row.dataCadastro)}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={badgeVariant}>{st.label}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {row.status === "Em negociacao" && podeEditarOuCriarFicha && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-8 px-3 text-xs"
+                              onClick={() => void onSubmeter(row)}
+                            >
+                              Enviar p/ secretaria
+                            </Button>
+                          )}
+                          {row.status === "Aguardando aprovacao" && podeAprovar && (
+                            <Button size="sm" className="h-8 px-3 text-xs" onClick={() => void onAprovar(row)}>
+                              Aprovar
+                            </Button>
+                          )}
+                          {row.status !== "Matriculado" && row.status !== "Cancelado" && podeCancelar && (
+                            <Button variant="danger" size="sm" className="h-8 px-3 text-xs" onClick={() => void onCancelar(row)}>
+                              Cancelar
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Modal
+        open={modalNovo}
+        title="Novo pré-aluno"
+        className="max-w-2xl"
+        onClose={fecharModalNovo}
+        hasUnsavedChanges={preAlunoModalTemAlteracao}
+        closeDisabled={salvando}
+      >
+        <div className="flex max-h-[min(72vh,calc(100vh-8rem))] flex-col gap-4 overflow-y-auto px-6 py-4">
+          <div className="flex items-center gap-2 text-xs text-zinc-500">
+            <span className={`rounded-full px-2 py-0.5 ${passoCadastro === "aluno" ? "bg-[#1F2A35] text-white" : "bg-zinc-200"}`}>
+              1 · Pré-aluno
+            </span>
+            <span aria-hidden className="text-zinc-300">›</span>
+            <span className={`rounded-full px-2 py-0.5 ${passoCadastro === "responsavel" ? "bg-[#1F2A35] text-white" : "bg-zinc-200"}`}>
+              2 · Responsável
+            </span>
+            <span aria-hidden className="text-zinc-300">›</span>
+            <span className={`rounded-full px-2 py-0.5 ${passoCadastro === "comercial" ? "bg-[#1F2A35] text-white" : "bg-zinc-200"}`}>
+              3 · Contrato / valores
+            </span>
+          </div>
+
+          {passoCadastro === "aluno" && (
+            <>
+              <p className="text-sm text-zinc-500">
+                Comece pelos dados do interessado. Em seguida definimos quem é o responsável financeiro.
+              </p>
+              <h3 className="text-sm font-semibold text-zinc-800 border-b pb-2">Dados do pré-aluno</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input label="Nome" value={formNovo.nome} onChange={(e) => setFormNovo((p) => ({ ...p, nome: e.target.value }))} />
+                <Input
+                  label="Sobrenome"
+                  value={formNovo.sobrenome}
+                  onChange={(e) => setFormNovo((p) => ({ ...p, sobrenome: e.target.value }))}
+                />
+                <Input
+                  label="Data de nascimento"
+                  type="date"
+                  value={formNovo.dataNascimento}
+                  onChange={(e) => setFormNovo((p) => ({ ...p, dataNascimento: e.target.value }))}
+                />
+                <div className="text-sm">
+                  <p className="font-medium text-zinc-700">Idade estimada</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Calculada com base na data de hoje do seu navegador.
+                  </p>
+                  <p className="mt-1 text-zinc-600">
+                    {idadePreAluno === null ? "Informe a data de nascimento." : `${idadePreAluno} anos`}
+                  </p>
+                  {idadePreAluno !== null && idadePreAluno < 18 && (
+                    <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Menores de 18 anos exigem na próxima etapa o cadastro de um responsável legal (pai, mãe ou
+                      tutor).
+                    </p>
+                  )}
+                </div>
+                <Input
+                  label={maiorOu18 ? "Celular (obrigatório se for o próprio responsável financeiro)" : "Celular (opcional)"}
+                  inputMode="numeric"
+                  value={applyBrazilMask("phone", formNovo.telefoneAluno ?? "")}
+                  onChange={(e) =>
+                    setFormNovo((p) => ({
+                      ...p,
+                      telefoneAluno: digitsOnly(e.target.value, 11),
+                    }))
+                  }
+                />
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">Livro de interesse</label>
+                  <select
+                    value={formNovo.livroInteresseId || ""}
+                    onChange={(e) =>
+                      setFormNovo((p) => ({
+                        ...p,
+                        livroInteresseId: Number(e.target.value) || 0,
+                      }))
+                    }
+                    className={SELECT_FIELD}
+                  >
+                    <option value="">Selecione...</option>
+                    {livros.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.nome}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-5 bg-white border border-zinc-200 rounded-lg p-5 shadow-sm">
-                <Campo label="Nome Completo" value={form.nome} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, nome: e.target.value})} />
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-zinc-700">Curso de Interesse</label>
-                  <select value={form.interesse} onChange={(e) => setForm({...form, interesse: e.target.value})} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35] bg-white">
-                    <option value="Book 1 (Iniciante)">Book 1 (Iniciante)</option>
-                    <option value="Book 2 (Intermediário)">Book 2 (Intermediário)</option>
-                    <option value="Book 3 (Avançado)">Book 3 (Avançado)</option>
-                  </select>
-                </div>
-                <Campo label="Telefone / WhatsApp" value={form.telefone} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, telefone: e.target.value})} />
-                <Campo label="E-mail" type="email" value={form.email} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, email: e.target.value})} />
-                <div className="flex flex-col gap-1.5 col-span-2">
-                  <label className="text-sm font-medium text-zinc-700">Anotações do Vendedor</label>
-                  <textarea value={form.observacoes} onChange={(e) => setForm({...form, observacoes: e.target.value})} rows={3} className="border border-zinc-300 rounded-lg p-3 text-sm outline-none focus:border-[#1F2A35] resize-none" />
-                </div>
+              <div className="mt-4 flex justify-end gap-2 border-t border-zinc-200 pt-4">
+                <PreAlunoCancelarBtn />
+                <Button onClick={avancarEtapaAluno} disabled={!etapaAlunoValida}>
+                  Continuar
+                </Button>
               </div>
-            </div>
+            </>
           )}
 
-          {/* ABA 2: DADOS PARA CONTRATO & FINANCEIRO */}
-          {abaAtual === "contrato" && (
-            <div className="flex flex-col gap-6">
-              <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm">
-                <h3 className="text-sm font-bold text-green-800 mb-4 border-b border-zinc-100 pb-2">Duração do Contrato e Valores</h3>
-                
-                <div className="flex flex-col gap-1.5 w-1/2 mb-4">
-                  <label className="text-sm font-medium text-zinc-700">Tempo de Contrato *</label>
-                  <select value={form.tempoContrato} onChange={(e) => handleTempoChange(Number(e.target.value))} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35] bg-white">
-                    <option value={0}>Selecione...</option>
-                    {[6, 12, 18, 24, 30, 36, 42, 48].map(m => <option key={m} value={m}>{m} meses ({m/6} semestre{m/6 > 1 ? 's' : ''})</option>)}
-                  </select>
+          {passoCadastro === "responsavel" && (
+            <>
+              <p className="text-sm text-zinc-500">
+                {menorDeIdade
+                  ? "Cadastro obrigatório do responsável financeiro pelo pré-aluno menor de idade."
+                  : `O pré-aluno tem ${idadePreAluno} anos. Informe quem será o responsável financeiro pelo contrato.`}
+              </p>
+
+              {!menorDeIdade && tipoResponsavelAdulto === null && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={escolherProprioResponsavel}
+                    className="flex flex-col items-start rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition hover:border-[#1F2A35] hover:shadow"
+                  >
+                    <span className="font-semibold text-zinc-900">Sou o próprio responsável financeiro</span>
+                    <span className="mt-1 text-xs text-zinc-500">
+                      Usa nome e celular já informados. Será solicitado o CPF do pré-aluno.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={escolherOutroResponsavel}
+                    className="flex flex-col items-start rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition hover:border-[#1F2A35] hover:shadow"
+                  >
+                    <span className="font-semibold text-zinc-900">Cadastrar outro responsável</span>
+                    <span className="mt-1 text-xs text-zinc-500">Pessoa física ou jurídica que assina/financia.</span>
+                  </button>
                 </div>
+              )}
 
-                {form.tempoContrato > 0 && (
-                  <div className="flex flex-col gap-4 mt-4 border-t border-zinc-100 pt-4">
-                    {form.tempoContrato > 6 && (
-                      <label className="flex items-center gap-2 cursor-pointer w-fit">
-                        <input type="checkbox" checked={form.valoresDiferentes} onChange={(e) => setForm({...form, valoresDiferentes: e.target.checked})} className="w-4 h-4 rounded border-zinc-300 accent-blue-600" />
-                        <span className="text-sm font-medium text-zinc-800">Aplicar valores diferentes para cada semestre</span>
-                      </label>
-                    )}
+              {menorDeIdade && (
+                <h3 className="text-sm font-semibold text-zinc-800 border-b pb-2">Responsável legal obrigatório</h3>
+              )}
 
-                    {!form.valoresDiferentes ? (
-                      <div className="grid grid-cols-2 gap-4 bg-zinc-50 p-4 rounded-lg border border-zinc-200">
-                        <Campo label="Mensalidade Padrão (R$) *" value={form.valorMensalidade} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, valorMensalidade: e.target.value})} placeholder="Ex: 250,00" />
-                        <Campo label="Material Padrão (R$)" value={form.valorMaterial} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, valorMaterial: e.target.value})} placeholder="Ex: 300,00" />
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-3">
-                        <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wide">Valores por semestre</p>
-                        {form.valores.map((v, i) => (
-                          <div key={i} className="flex gap-4 items-center bg-zinc-50 p-4 rounded-lg border border-zinc-200 shadow-sm">
-                            <span className="text-sm font-bold text-[#1F2A35] uppercase w-28 whitespace-nowrap">{i + 1}º Semestre</span>
-                            <div className="grid grid-cols-2 gap-4 flex-1">
-                              <Campo label="Mensalidade (R$) *" value={v.mensalidade} onChange={(e: ChangeEvent<HTMLInputElement>) => handleValorSemestreChange(i, 'mensalidade', e.target.value)} placeholder="Ex: 250,00" />
-                              <Campo label="Material (R$)" value={v.material} onChange={(e: ChangeEvent<HTMLInputElement>) => handleValorSemestreChange(i, 'material', e.target.value)} placeholder="Ex: 300,00" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {!menorDeIdade && tipoResponsavelAdulto === "proprio" && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-blue-900">
+                  <strong>Próprio responsável:</strong> o cadastro usará nome e sobrenome do pré-aluno. Informe abaixo
+                  o <strong>CPF</strong> e confirme o <strong>celular já preenchido</strong> (mínimo 10 dígitos).
+                </div>
+              )}
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <label className="flex items-center gap-3 cursor-pointer w-fit">
-                  <input type="checkbox" checked={form.maiorDeIdade} onChange={(e) => setForm({...form, maiorDeIdade: e.target.checked})} className="w-5 h-5 rounded border-blue-300 accent-blue-600" />
+              {!menorDeIdade && tipoResponsavelAdulto === "outro" && (
+                <h3 className="text-sm font-semibold text-zinc-800 border-b pb-2">Dados do responsável financeiro</h3>
+              )}
+
+              {(menorDeIdade || tipoResponsavelAdulto === "outro") && (
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <span className="text-sm font-semibold text-blue-900 block">Aluno é maior de idade (18+ anos)</span>
-                    <span className="text-xs text-blue-700">Se marcado, os dados do responsável financeiro não serão exigidos.</span>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700">Tipo</label>
+                    <select
+                      value={formNovo.responsavelTipoPessoa}
+                      onChange={(e) => setFormNovo((p) => ({ ...p, responsavelTipoPessoa: e.target.value }))}
+                      className={SELECT_FIELD}
+                    >
+                      <option value="Fisica">Pessoa física</option>
+                      <option value="Juridica">Pessoa jurídica</option>
+                    </select>
                   </div>
-                </label>
-              </div>
-
-              <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm">
-                <h3 className="text-sm font-bold text-zinc-800 mb-4 border-b border-zinc-100 pb-2">Documentação do Aluno</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Campo label="CPF *" value={form.cpf} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, cpf: e.target.value})} placeholder="000.000.000-00" />
-                  <Campo label="RG" value={form.rg} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, rg: e.target.value})} placeholder="00.000.000-0" />
-                  <Campo label="Data Nascimento *" type="date" value={form.dataNascimento} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, dataNascimento: e.target.value})} />
+                  <Input
+                    label={formNovo.responsavelTipoPessoa === "Fisica" ? "CPF" : "CNPJ"}
+                    inputMode="numeric"
+                    value={
+                      formNovo.responsavelTipoPessoa === "Fisica"
+                        ? applyBrazilMask("cpf", formNovo.responsavelCpfCnpj)
+                        : applyBrazilMask("cnpj", formNovo.responsavelCpfCnpj)
+                    }
+                    onChange={(e) =>
+                      setFormNovo((p) => ({
+                        ...p,
+                        responsavelCpfCnpj: digitsOnly(
+                          e.target.value,
+                          formNovo.responsavelTipoPessoa === "Fisica" ? 11 : 14,
+                        ),
+                      }))}
+                  />
+                  <Input
+                    label="Nome"
+                    value={formNovo.responsavelNome}
+                    onChange={(e) => setFormNovo((p) => ({ ...p, responsavelNome: e.target.value }))}
+                  />
+                  <Input
+                    label="Sobrenome"
+                    value={formNovo.responsavelSobrenome}
+                    onChange={(e) => setFormNovo((p) => ({ ...p, responsavelSobrenome: e.target.value }))}
+                  />
+                  <Input
+                    label="Telefone / WhatsApp do responsável"
+                    inputMode="numeric"
+                    value={applyBrazilMask("phone", formNovo.responsavelTelefone)}
+                    onChange={(e) =>
+                      setFormNovo((p) => ({
+                        ...p,
+                        responsavelTelefone: digitsOnly(e.target.value, 11),
+                      }))}
+                  />
                 </div>
-              </div>
+              )}
 
-              <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm">
-                <h3 className="text-sm font-bold text-zinc-800 mb-4 border-b border-zinc-100 pb-2">Endereço Residencial</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="col-span-2 md:col-span-1"><Campo label="CEP *" value={form.cep} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, cep: e.target.value})} placeholder="00000-000" /></div>
-                  <div className="col-span-2 md:col-span-3"><Campo label="Logradouro *" value={form.logradouro} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, logradouro: e.target.value})} placeholder="Rua, Avenida..." /></div>
-                  <div className="col-span-1"><Campo label="Número *" value={form.numero} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, numero: e.target.value})} placeholder="123" /></div>
-                  <div className="col-span-1 md:col-span-1"><Campo label="Bairro *" value={form.bairro} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, bairro: e.target.value})} placeholder="Centro" /></div>
-                  <div className="col-span-2"><Campo label="Cidade *" value={form.cidade} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, cidade: e.target.value})} placeholder="São Paulo - SP" /></div>
-                </div>
-              </div>
-
-              {!form.maiorDeIdade && (
-                <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm">
-                  <h3 className="text-sm font-bold text-amber-800 mb-4 border-b border-zinc-100 pb-2">Dados do Responsável Financeiro</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Campo label="Nome do Responsável *" value={form.nomeResponsavel} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, nomeResponsavel: e.target.value})} />
-                    <Campo label="CPF do Responsável *" value={form.cpfResponsavel} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, cpfResponsavel: e.target.value})} placeholder="000.000.000-00" />
-                    <Campo label="Telefone do Responsável *" value={form.telefoneResponsavel} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({...form, telefoneResponsavel: e.target.value})} placeholder="(00) 00000-0000" />
+              {!menorDeIdade && tipoResponsavelAdulto === "proprio" && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input
+                    label="CPF do pré-aluno (responsável financeiro)"
+                    inputMode="numeric"
+                    value={applyBrazilMask("cpf", formNovo.alunoCpf ?? "")}
+                    onChange={(e) =>
+                      setFormNovo((p) => ({
+                        ...p,
+                        alunoCpf: digitsOnly(e.target.value, 11),
+                      }))}
+                  />
+                  <div className="text-sm">
+                    <p className="font-medium text-zinc-700">Celular de contato</p>
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Usamos o campo &quot;Celular&quot; da primeira etapa. Ajuste ali se precisar.
+                    </p>
                   </div>
                 </div>
               )}
-            </div>
+
+              <div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-zinc-200 pt-4">
+                <Button variant="secondary" onClick={() => setPassoCadastro("aluno")}>
+                  Voltar
+                </Button>
+                <div className="flex gap-2">
+                  {!menorDeIdade && tipoResponsavelAdulto !== null && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setTipoResponsavelAdulto(null);
+                        setFormNovo((p) => ({
+                          ...p,
+                          eProprioResponsavel: false,
+                          alunoCpf: "",
+                        }));
+                      }}
+                    >
+                      Trocar opção
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => setPassoCadastro("comercial")}
+                    disabled={!etapaResponsavelValida || (!menorDeIdade && tipoResponsavelAdulto === null)}
+                  >
+                    Continuar para contrato / valores
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
 
-          {/* ABA 3: ANEXOS E ENVIO */}
-          {abaAtual === "anexos" && (
-            <div className="flex flex-col gap-6">
-              
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                <p className="text-sm font-medium text-amber-800 mb-2">Para enviar este aluno para a Secretaria, deve anexar obrigatoriamente:</p>
-                <ul className="text-sm text-amber-700 list-disc pl-5">
-                  <li className={temContratoAssinado ? "text-green-700 line-through" : "font-bold"}>Contrato Assinado</li>
-                  <li className={temComprovantePagto ? "text-green-700 line-through" : "font-bold"}>Comprovante de Pagamento da Matrícula</li>
-                </ul>
-              </div>
-
-              <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-900">Gerar Contrato (PDF)</h3>
-                  <p className="text-xs text-zinc-500 mt-1">Imprima o contrato para o aluno assinar, ou salve em PDF para enviar via WhatsApp.</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    if(!dadosContratoProntos) {
-                      alert("Preencha os Valores (Tempo e Semestres), CPF e Endereço na aba 'Dados & Valores' antes de gerar o PDF.");
-                      setAbaAtual("contrato");
-                    } else {
-                      onGerarContrato(form);
-                    }
-                  }} 
-                  className="h-10 px-5 bg-white border border-[#1F2A35] text-[#1F2A35] font-bold rounded-lg hover:bg-zinc-50 transition-colors flex items-center gap-2"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                  Gerar Contrato
-                </button>
-              </div>
-
-              <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm">
-                <h3 className="text-sm font-bold text-zinc-800 mb-4 border-b border-zinc-100 pb-2">Anexar Documentos</h3>
-                
-                <div className="flex gap-3 items-end mb-6">
-                  <div className="flex flex-col gap-1.5 flex-1">
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Tipo de Documento</label>
-                    <select value={tipoAnexoSelecionado} onChange={(e) => setTipoAnexoSelecionado(e.target.value)} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35] bg-white">
-                      {TIPOS_ANEXO.map(t => <option key={t} value={t}>{t}</option>)}
+          {passoCadastro === "comercial" && (
+            <>
+              <h3 className="border-b pb-2 pt-2 text-sm font-semibold text-zinc-800">
+                Contrato e valores financeiros
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2 space-y-2">
+                  <p className="text-sm font-medium text-zinc-700">Duração do contrato (meses)</p>
+                  <div className="flex flex-wrap gap-4 text-sm">
+                    <label className="inline-flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="tipo-contr-pre"
+                        checked={contratoEmMesesLista}
+                        onChange={() => setContratoEmMesesLista(true)}
+                      />
+                      <span>Escolher quantidade padrão</span>
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="tipo-contr-pre"
+                        checked={!contratoEmMesesLista}
+                        onChange={() => setContratoEmMesesLista(false)}
+                      />
+                      <span>Informar texto / prazo específico</span>
+                    </label>
+                  </div>
+                  {contratoEmMesesLista ? (
+                    <select
+                      value={mesesContrato}
+                      onChange={(e) =>
+                        setMesesContrato(Number(e.target.value) as 6 | 12 | 18 | 24)}
+                      className={SELECT_FIELD}
+                    >
+                      <option value={6}>6 meses</option>
+                      <option value={12}>12 meses</option>
+                      <option value={18}>18 meses</option>
+                      <option value={24}>24 meses</option>
                     </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5 flex-1">
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Ficheiro</label>
-                    <input 
-                      type="file" 
-                      onChange={(e) => setArquivoUpload(e.target.files?.[0] || null)}
-                      className="block w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors border border-zinc-300 rounded-lg p-1.5"
-                    />
-                  </div>
-                  <button 
-                    disabled={!arquivoUpload}
-                    onClick={handleUpload}
-                    className="h-10 px-4 bg-blue-600 text-white font-bold text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Anexar
-                  </button>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  {form.anexos.length === 0 ? (
-                    <div className="text-center py-6 text-sm text-zinc-400 bg-zinc-50 rounded-lg border border-dashed border-zinc-300">Nenhum documento anexado ainda.</div>
                   ) : (
-                    form.anexos.map(anexo => (
-                      <div key={anexo.id} className="flex items-center justify-between p-3 border border-zinc-200 rounded-lg bg-zinc-50">
-                        <div className="flex items-center gap-3">
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-500"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                          <div>
-                            <p className="text-sm font-bold text-zinc-800">{anexo.tipo}</p>
-                            <p className="text-xs text-zinc-500">{anexo.nomeArquivo} • Enviado em {anexo.data}</p>
-                          </div>
-                        </div>
-                        <button onClick={() => removerAnexo(anexo.id)} className="text-red-500 hover:text-red-700 text-xs font-bold uppercase">
-                          Excluir
-                        </button>
-                      </div>
-                    ))
+                    <Input
+                      label="Descrição da duração (ex.: 15 meses, trimestral…)"
+                      value={contratoTextoManual}
+                      onChange={(e) => setContratoTextoManual(e.target.value)}
+                      placeholder='Ex.: "15 meses" ou texto combinado'
+                    />
                   )}
                 </div>
-              </div>
-
-              <div className="mt-2 flex justify-center">
-                <button 
-                  disabled={!anexosProntos}
-                  onClick={() => { 
-                    // Limpa a flag de devolução ao reenviar para a secretaria
-                    const formDataFinal = { ...form, devolvidoSecretaria: false, motivoDevolucao: "" };
-                    onEnviarSecretaria(formDataFinal); 
-                    onClose(); 
-                  }} 
-                  className="w-full h-12 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  Finalizar Venda e Enviar para a Secretaria
-                </button>
-              </div>
-
-            </div>
-          )}
-
-        </div>
-
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200 bg-white rounded-b-xl">
-          <button onClick={onClose} className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 rounded-lg hover:bg-zinc-50 transition-colors">Cancelar</button>
-          <button onClick={() => { onSave(form); onClose(); }} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors shadow-sm">Salvar Progresso</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Modal Gerar Contrato (Visualização Oficial PDF) ──────────────────────────
-function ModalContrato({ lead, onClose }: { lead: Lead, onClose: () => void }) {
-  const dataAtual = new Date().toLocaleDateString('pt-BR');
-
-  const nomeContratante = lead.maiorDeIdade ? lead.nome : lead.nomeResponsavel;
-  const cpfContratante = lead.maiorDeIdade ? lead.cpf : lead.cpfResponsavel;
-  const telefoneContratante = lead.maiorDeIdade ? lead.telefone : lead.telefoneResponsavel;
-  
-  const enderecoCompleto = `${lead.logradouro}, ${lead.numero} - ${lead.bairro}, ${lead.cidade} - CEP: ${lead.cep}`;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 print:bg-white print:items-start">
-      <button onClick={onClose} className="absolute top-4 right-4 w-10 h-10 bg-white rounded-full flex items-center justify-center text-zinc-500 hover:text-zinc-900 shadow-md print:hidden">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-
-      <div className="bg-white rounded-lg shadow-xl print:shadow-none w-full max-w-4xl mx-4 print:mx-0 flex flex-col p-12 border border-zinc-300 print:border-none h-[95vh] overflow-y-auto print:h-auto print:overflow-visible">
-        
-        <div className="text-center mb-10 border-b-2 border-zinc-800 pb-6">
-          <h1 className="text-2xl font-bold text-zinc-900 uppercase tracking-widest">Contrato de Prestação de Serviços Educacionais</h1>
-          <p className="text-sm font-medium text-zinc-600 mt-2">LEARLY IDIOMAS - CNPJ: 12.345.678/0001-90</p>
-        </div>
-
-        <div className="text-sm leading-relaxed text-zinc-800 space-y-6 font-[Georgia,serif] text-justify">
-          <p>
-            Pelo presente instrumento particular, de um lado <strong>LEARLY IDIOMAS</strong>, doravante denominada simplesmente CONTRATADA, e de outro lado o(a) CONTRATANTE e responsável financeiro:
-          </p>
-          
-          <div className="bg-zinc-50 border border-zinc-200 p-4 rounded text-sm my-4">
-            <p><strong>Nome:</strong> {nomeContratante.toUpperCase() || "____________________________________________"}</p>
-            <p><strong>CPF:</strong> {cpfContratante || "_________________"} | <strong>Telefone:</strong> {telefoneContratante || "_________________"}</p>
-            <p><strong>Endereço:</strong> {lead.logradouro ? enderecoCompleto.toUpperCase() : "________________________________________________________________________"}</p>
-            {!lead.maiorDeIdade && (
-              <p className="mt-2 text-zinc-600 border-t border-zinc-200 pt-2">
-                <strong>Atuando como responsável educacional pelo aluno(a):</strong> {lead.nome.toUpperCase()}
-              </p>
-            )}
-          </div>
-
-          <p>têm entre si justo e acordado o presente Contrato de Prestação de Serviços Educacionais, que se regerá pelas cláusulas seguintes:</p>
-
-          <p><strong>CLÁUSULA PRIMEIRA - DO OBJETO:</strong> O objeto deste contrato é a prestação de serviços educacionais no ensino de idiomas, referente ao curso/nível <strong>{lead.interesse.toUpperCase()}</strong>.</p>
-          
-          <p>
-            <strong>CLÁUSULA SEGUNDA - DOS VALORES E MATRÍCULA:</strong> O presente contrato tem duração estipulada de <strong>{lead.tempoContrato} meses</strong>. O CONTRATANTE obriga-se a pagar à CONTRATADA os valores referentes à prestação dos serviços educacionais e material didático, conforme acordado abaixo:
-          </p>
-
-          {!lead.valoresDiferentes ? (
-            <div className="my-4 bg-zinc-50 p-4 border border-zinc-200 rounded">
-              <p><strong>Mensalidade Padrão:</strong> R$ {lead.valorMensalidade}</p>
-              {lead.valorMaterial && <p className="mt-1"><strong>Material Didático:</strong> R$ {lead.valorMaterial}</p>}
-            </div>
-          ) : (
-            <ul className="list-none pl-4 space-y-2 my-4 bg-zinc-50 p-4 border border-zinc-200 rounded">
-              {lead.valores.map((v) => (
-                <li key={v.semestre}>
-                  <strong>{v.semestre}º Semestre:</strong> Mensalidade de R$ {v.mensalidade} {v.material ? ` | Material Didático: R$ ${v.material}` : ""}
-                </li>
-              ))}
-            </ul>
-          )}
-          
-          <p>A matrícula oficial e as cobranças financeiras definitivas serão geradas e validadas pela Secretaria Acadêmica da instituição após a assinatura deste instrumento.</p>
-
-          <p><strong>CLÁUSULA TERCEIRA - DA FREQUÊNCIA:</strong> Para aprovação e emissão de certificado, o aluno deverá apresentar frequência mínima de 75% (setenta e cinco por cento) das aulas ministradas no semestre correspondente.</p>
-
-          <p>E, por estarem de inteiro e comum acordo, as partes assinam o presente contrato em 2 (duas) vias de igual teor e forma.</p>
-        </div>
-
-        <div className="mt-20 flex flex-col items-center text-sm text-zinc-800 font-[Georgia,serif]">
-          <p className="mb-16">São Paulo - SP, {dataAtual}</p>
-          
-          <div className="flex w-full justify-between px-10">
-            <div className="flex flex-col items-center w-72 text-center font-sans">
-              <div className="w-full border-b border-zinc-800 mb-2"></div>
-              <p className="font-bold uppercase text-xs truncate w-full">{nomeContratante || "CONTRATANTE"}</p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">CPF: {cpfContratante || "Não informado"}</p>
-            </div>
-            
-            <div className="flex flex-col items-center w-72 text-center font-sans">
-              <div className="w-full border-b border-zinc-800 mb-2"></div>
-              <p className="font-bold uppercase text-xs">LEARLY IDIOMAS</p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">CONTRATADA</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Botão de Imprimir */}
-        <div className="mt-16 flex justify-center print:hidden">
-          <button onClick={() => window.print()} className="h-10 px-8 font-bold text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors flex items-center gap-2 uppercase text-sm tracking-wider shadow-md">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-            Imprimir Contrato
-          </button>
-        </div>
-
-      </div>
-    </div>
-  );
-}
-
-// ─── Página Principal ─────────────────────────────────────────────────────────
-export default function ComercialPage() {
-  const [leads, setLeads] = useState<Lead[]>(leadsMockIniciais);
-  const [modalNovo, setModalNovo] = useState(false);
-  
-  const [leadEditando, setLeadEditando] = useState<Lead | null>(null);
-  const [leadContrato, setLeadContrato] = useState<Lead | null>(null);
-
-  // Filtra os leads por coluna, ocultando os cancelados
-  const leadsNovo = leads.filter(l => l.estagio === "NOVO");
-  const leadsNegociacao = leads.filter(l => l.estagio === "NEGOCIACAO");
-  const leadsAprovado = leads.filter(l => l.estagio === "APROVADO");
-
-  function adicionarLead(dados: Partial<Lead>) {
-    const novoLead: Lead = {
-      id: Date.now(),
-      nome: dados.nome || "",
-      telefone: dados.telefone || "",
-      email: dados.email || "",
-      interesse: dados.interesse || "",
-      estagio: "NOVO", 
-      dataRegistro: new Date().toLocaleDateString('pt-BR'),
-      observacoes: dados.observacoes || "",
-      maiorDeIdade: true, cpf: "", rg: "", dataNascimento: "", cep: "", logradouro: "", numero: "", bairro: "", cidade: "", nomeResponsavel: "", cpfResponsavel: "", telefoneResponsavel: "", valorMensalidade: "", valorMaterial: "", tempoContrato: 0, valoresDiferentes: false, valores: [], anexos: []
-    };
-    setLeads(prev => [novoLead, ...prev]);
-  }
-
-  function atualizarLead(leadAtualizado: Lead) {
-    setLeads(prev => prev.map(l => l.id === leadAtualizado.id ? leadAtualizado : l));
-  }
-
-  function enviarParaSecretaria(lead: Lead) {
-    alert(`Sucesso! A pasta de ${lead.nome} foi enviada para a fila da Secretaria.\nA Secretaria fará a matrícula no sistema e gerará as cobranças financeiras oficiais.`);
-    setLeads(prev => prev.filter(l => l.id !== lead.id)); 
-  }
-
-  // 👇 NOVO: Função para cancelar o lead (Marcá-lo como perdido) 👇
-  function cancelarLead(lead: Lead) {
-    if (confirm(`Tem a certeza que deseja CANCELAR a negociação com ${lead.nome}?\nO pré-aluno será removido do funil de vendas.`)) {
-      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, estagio: "CANCELADO" } : l));
-    }
-  }
-
-  const renderColuna = (estagioId: EstagioFunil, listaLeads: Lead[], config: typeof ESTAGIOS[0]) => (
-    <div className="flex flex-col bg-zinc-100/50 rounded-xl p-3 min-w-[320px] max-w-[350px] flex-1 border border-zinc-200">
-      <div className="flex items-center justify-between mb-4 px-1">
-        <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full ${config.bg.replace("100", "500")}`} />
-          <h3 className="font-bold text-zinc-800 text-sm uppercase tracking-wide">{config.label}</h3>
-        </div>
-        <span className="text-xs font-bold text-zinc-500 bg-white px-2 py-0.5 rounded shadow-sm border border-zinc-200">{listaLeads.length}</span>
-      </div>
-
-      <div className="flex flex-col gap-3 overflow-y-auto pr-1 pb-2 h-[calc(100vh-250px)]">
-        {listaLeads.length === 0 ? (
-          <div className="text-center py-10 text-zinc-400 text-xs font-medium border-2 border-dashed border-zinc-200 rounded-lg">Vazio</div>
-        ) : (
-          listaLeads.map(lead => {
-            const temContratoAssinado = lead.anexos.some(a => a.tipo === "Contrato Assinado");
-            const temComprovantePagto = lead.anexos.some(a => a.tipo === "Comprovante de Pagamento (Matrícula)");
-            const prontoParaEnvio = temContratoAssinado && temComprovantePagto;
-
-            return (
-              <div 
-                key={lead.id} 
-                onClick={() => setLeadEditando(lead)}
-                className="bg-white p-4 rounded-lg shadow-sm border border-zinc-200 cursor-pointer hover:border-blue-400 hover:shadow transition-all group flex flex-col gap-2 relative overflow-hidden"
-              >
-                {/* 👇 NOVO: Indicador de Devolução da Secretaria 👇 */}
-                {lead.devolvidoSecretaria && (
-                  <div className="mb-1 bg-red-100 border border-red-200 text-red-700 text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 w-fit">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    DEVOLVIDO PELA SECRETARIA
-                  </div>
-                )}
-
-                {/* Indicadores de Status (Pendente/Pronto) */}
-                {lead.estagio === "APROVADO" && !prontoParaEnvio && (
-                  <div className="absolute top-0 right-0 w-16 h-16 overflow-hidden">
-                    <div className="absolute transform rotate-45 bg-amber-500 text-white text-[8px] font-bold py-1 right-[-20px] top-[15px] w-[80px] text-center shadow-sm">
-                      PENDENTE
-                    </div>
-                  </div>
-                )}
-                {lead.estagio === "APROVADO" && prontoParaEnvio && (
-                  <div className="absolute top-0 right-0 w-16 h-16 overflow-hidden">
-                    <div className="absolute transform rotate-45 bg-green-500 text-white text-[8px] font-bold py-1 right-[-20px] top-[15px] w-[80px] text-center shadow-sm">
-                      PRONTO!
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex justify-between items-start">
-                  <h4 className={`font-bold text-sm leading-tight pr-4 ${lead.devolvidoSecretaria ? "text-red-900" : "text-zinc-900"}`}>{lead.nome}</h4>
-                  
-                  {/* 👇 NOVO: Botão de Cancelar o Lead no canto superior 👇 */}
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); cancelarLead(lead); }} 
-                    className="opacity-0 group-hover:opacity-100 text-zinc-300 hover:text-red-500 transition-all absolute right-3 top-3 bg-white rounded-full p-1"
-                    title="Cancelar Negociação"
+                <Input
+                  label="Valor mensalidade (R$)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formNovo.valorMensalidade || ""}
+                  onChange={(e) =>
+                    setFormNovo((p) => ({
+                      ...p,
+                      valorMensalidade: Number(e.target.value.replace(",", ".")) || 0,
+                    }))
+                  }
+                />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">
+                    Forma de pagamento da mensalidade{" "}
+                    <span className="font-normal text-zinc-500">(opcional)</span>
+                  </label>
+                  <select
+                    value={formNovo.formaPagamento ?? ""}
+                    onChange={(e) =>
+                      setFormNovo((p) => ({
+                        ...p,
+                        formaPagamento: e.target.value,
+                      }))}
+                    className={SELECT_FIELD}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
+                    <option value="">— Não informar —</option>
+                    {FORMAS_PAGAMENTO_OPCOES.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                
-                <span className="text-[10px] font-semibold text-zinc-400">{lead.dataRegistro}</span>
-                <div className="flex flex-col gap-1 mt-1">
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-600 font-medium">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                    {lead.telefone}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-600 font-medium">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                    {lead.interesse}
-                  </div>
+                <Input
+                  label="Valor total do livro/material didático cobrado (R$)"
+                  helperText='Use 0 (zero) se for gratuito ou não aplicável.'
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formNovo.valorMaterial ?? ""}
+                  onChange={(e) =>
+                    setFormNovo((p) => ({
+                      ...p,
+                      valorMaterial:
+                        e.target.value === ""
+                          ? 0
+                          : Math.max(0, Number(e.target.value.replace(",", "."))),
+                    }))}
+                />
+                <Input
+                  label="Valor da matrícula (R$)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formNovo.valorMatricula ?? ""}
+                  onChange={(e) =>
+                    setFormNovo((p) => ({
+                      ...p,
+                      valorMatricula:
+                        e.target.value === ""
+                          ? 0
+                          : Math.max(0, Number(e.target.value.replace(",", "."))),
+                    }))}
+                />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">
+                    Forma de pagamento da matrícula
+                    {Number(formNovo.valorMatricula) > 0 ? (
+                      <span className="text-red-600"> *</span>
+                    ) : null}
+                  </label>
+                  <select
+                    value={formNovo.formaPagamentoMatricula ?? ""}
+                    onChange={(e) =>
+                      setFormNovo((p) => ({
+                        ...p,
+                        formaPagamentoMatricula: e.target.value,
+                      }))}
+                    disabled={!(Number(formNovo.valorMatricula) > 0)}
+                    className={SELECT_FIELD}
+                  >
+                    <option value="">— Escolha se houver valor de matrícula —</option>
+                    {FORMAS_PAGAMENTO_OPCOES.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
-            );
-          })
-        )}
-      </div>
+
+              <h3 className="mt-2 border-b pb-2 pt-4 text-sm font-semibold text-zinc-800">Prospecção</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">
+                    De onde esse aluno/prospect veio?<span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    value={formNovo.origemCaptacao}
+                    onChange={(e) =>
+                      setFormNovo((p) => ({
+                        ...p,
+                        origemCaptacao: e.target.value,
+                      }))}
+                    className={SELECT_FIELD}
+                  >
+                    <option value="">Selecione…</option>
+                    {ORIGEM_CAPTACAO_OPCOES.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <h3 className="mt-2 border-b pb-2 pt-4 text-sm font-semibold text-zinc-800">Transporte</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">Transporte por van escolar?</label>
+                  <select
+                    value={formNovo.usaTransporteVan ? "sim" : "nao"}
+                    onChange={(e) => {
+                      const sim = e.target.value === "sim";
+                      setFormNovo((p) => ({
+                        ...p,
+                        usaTransporteVan: sim,
+                        ...(sim
+                          ? {}
+                          : {
+                              transporteCep: "",
+                              transporteLogradouro: "",
+                              transporteNumero: "",
+                              transporteComplemento: "",
+                              transporteBairro: "",
+                              transporteCidade: "",
+                              transporteUf: "",
+                            }),
+                      }));
+                    }}
+                    className={SELECT_FIELD}
+                  >
+                    <option value="nao">Não</option>
+                    <option value="sim">Sim — preciso de van</option>
+                  </select>
+                  {formNovo.usaTransporteVan ? (
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Informe endereço completo para logística da van. Você pode preencher o CEP e buscar dados.
+                    </p>
+                  ) : null}
+                </div>
+
+                {formNovo.usaTransporteVan ? (
+                  <>
+                    <div className="flex flex-col gap-2 sm:col-span-2">
+                      <label className="text-sm font-medium text-zinc-700">CEP</label>
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          className={SELECT_FIELD.replace(" w-full ", " flex-1 min-w-[140px] ")}
+                          inputMode="numeric"
+                          placeholder="00000-000"
+                          value={applyBrazilMask("cep", formNovo.transporteCep ?? "")}
+                          onChange={(e) =>
+                            setFormNovo((p) => ({
+                              ...p,
+                              transporteCep: digitsOnly(e.target.value, 8),
+                            }))}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => void buscarCepTransporteVan()}
+                          disabled={digitsOnly(formNovo.transporteCep ?? "").length !== 8 || cepVanBuscando}
+                          isLoading={cepVanBuscando}
+                        >
+                          Buscar CEP
+                        </Button>
+                      </div>
+                    </div>
+                    <Input
+                      label="Logradouro *"
+                      value={formNovo.transporteLogradouro ?? ""}
+                      onChange={(e) =>
+                        setFormNovo((p) => ({ ...p, transporteLogradouro: e.target.value }))}
+                    />
+                    <Input
+                      label="Número *"
+                      value={formNovo.transporteNumero ?? ""}
+                      onChange={(e) =>
+                        setFormNovo((p) => ({ ...p, transporteNumero: e.target.value }))}
+                    />
+                    <Input
+                      label="Complemento"
+                      value={formNovo.transporteComplemento ?? ""}
+                      onChange={(e) =>
+                        setFormNovo((p) => ({ ...p, transporteComplemento: e.target.value }))}
+                    />
+                    <Input
+                      label="Bairro *"
+                      value={formNovo.transporteBairro ?? ""}
+                      onChange={(e) =>
+                        setFormNovo((p) => ({ ...p, transporteBairro: e.target.value }))}
+                    />
+                    <Input
+                      label="Cidade *"
+                      value={formNovo.transporteCidade ?? ""}
+                      onChange={(e) =>
+                        setFormNovo((p) => ({ ...p, transporteCidade: e.target.value }))}
+                    />
+                    <Input
+                      label="UF * (2 letras)"
+                      inputMode="text"
+                      maxLength={2}
+                      value={(formNovo.transporteUf ?? "").slice(0, 2)}
+                      onChange={(e) =>
+                        setFormNovo((p) => ({
+                          ...p,
+                          transporteUf: e.target.value.toUpperCase(),
+                        }))}
+                    />
+                  </>
+                ) : null}
+              </div>
+
+              <div className="mt-4 sm:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Observações comerciais</label>
+                <textarea
+                  value={formNovo.observacoesComerciais ?? ""}
+                  onChange={(e) =>
+                    setFormNovo((p) => ({
+                      ...p,
+                      observacoesComerciais: e.target.value,
+                    }))}
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-zinc-300 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/15"
+                  placeholder='Detalhes da negociação, combinações com "Origem Outro", etc.'
+                />
+              </div>
+
+              <div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-zinc-200 pt-4">
+                <Button variant="secondary" onClick={() => setPassoCadastro("responsavel")} disabled={salvando}>
+                  Voltar
+                </Button>
+                <div className="flex gap-2">
+                  <PreAlunoCancelarBtn disabled={salvando} />
+                  <Button
+                    onClick={() => void salvarNovo()}
+                    disabled={salvando || !podeSalvarTudo}
+                    isLoading={salvando}
+                  >
+                    Salvar pré-aluno
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
-  );
-
-  return (
-    <>
-      <div className="flex flex-col gap-6 h-full">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-zinc-900">Comercial / CRM</h1>
-            <p className="text-sm text-zinc-500 mt-0.5">Gerencie os interessados, colete dados e gere contratos.</p>
-          </div>
-          <button 
-            onClick={() => setModalNovo(true)}
-            className="flex items-center gap-2 h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors shadow-sm"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Novo Pré-aluno
-          </button>
-        </div>
-
-        <div className="flex gap-4 overflow-x-auto pb-4 h-full">
-          {renderColuna("NOVO", leadsNovo, ESTAGIOS[0])}
-          {renderColuna("NEGOCIACAO", leadsNegociacao, ESTAGIOS[1])}
-          {renderColuna("APROVADO", leadsAprovado, ESTAGIOS[2])}
-        </div>
-      </div>
-
-      {modalNovo && (
-        <ModalNovoLead onClose={() => setModalNovo(false)} onSave={adicionarLead} />
-      )}
-
-      {leadEditando && (
-        <ModalDetalhesLead 
-          lead={leadEditando} 
-          onClose={() => setLeadEditando(null)} 
-          onSave={atualizarLead} 
-          onGerarContrato={(l) => { setLeadEditando(null); setLeadContrato(l); }}
-          onEnviarSecretaria={enviarParaSecretaria}
-        />
-      )}
-
-      {leadContrato && (
-        <ModalContrato lead={leadContrato} onClose={() => setLeadContrato(null)} />
-      )}
-    </>
   );
 }

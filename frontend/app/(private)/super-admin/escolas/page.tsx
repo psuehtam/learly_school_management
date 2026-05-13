@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getApiErrorMessage } from "@/lib/api/client";
 import { criarEscola, listarEscolas, type Escola } from "@/lib/api/escolas";
+import { applyBrazilMask, digitsOnly, isValidCNPJ } from "@/utils";
 
 function ModalNovaEscola({
   onClose,
@@ -31,16 +32,35 @@ function ModalNovaEscola({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!codigoEscola.trim() || !nomeFantasia.trim() || !adminEmail.trim() || !adminPassword.trim()) return;
+    if (
+      !codigoEscola.trim() ||
+      !nomeFantasia.trim() ||
+      !razaoSocial.trim() ||
+      !adminNomeCompleto.trim() ||
+      !adminEmail.trim() ||
+      !adminPassword.trim()
+    ) {
+      setErro("Preencha todos os campos.");
+      return;
+    }
+    const cnpjDigits = digitsOnly(cnpj);
+    if (cnpjDigits.length !== 14) {
+      setErro("Informe o CNPJ completo.");
+      return;
+    }
+    if (!isValidCNPJ(cnpj)) {
+      setErro("CNPJ inválido.");
+      return;
+    }
     setSubmitting(true);
     setErro("");
     try {
       await onSave({
         codigoEscola: codigoEscola.trim().toUpperCase(),
         nomeFantasia: nomeFantasia.trim(),
-        razaoSocial: razaoSocial.trim() || undefined,
-        cnpj: cnpj.trim() || undefined,
-        adminNomeCompleto: adminNomeCompleto.trim() || undefined,
+        razaoSocial: razaoSocial.trim(),
+        cnpj: cnpjDigits,
+        adminNomeCompleto: adminNomeCompleto.trim(),
         adminEmail: adminEmail.trim().toLowerCase(),
         adminPassword,
       });
@@ -79,7 +99,6 @@ function ModalNovaEscola({
               value={codigoEscola}
               onChange={(e) => setCodigoEscola(e.target.value.toUpperCase())}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm uppercase"
-              placeholder="Ex: MINHA-ESCOLA"
               required
             />
           </div>
@@ -93,20 +112,23 @@ function ModalNovaEscola({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Razão social</label>
+            <label className="text-sm font-medium text-zinc-700">Razão social *</label>
             <input
               value={razaoSocial}
               onChange={(e) => setRazaoSocial(e.target.value)}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
+              required
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">CNPJ</label>
+            <label className="text-sm font-medium text-zinc-700">CNPJ *</label>
             <input
               value={cnpj}
-              onChange={(e) => setCnpj(e.target.value)}
+              onChange={(e) => setCnpj(applyBrazilMask("cnpj", e.target.value))}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
-              placeholder="Opcional"
+              inputMode="numeric"
+              autoComplete="off"
+              required
             />
           </div>
           <div className="pt-2 border-t border-zinc-100">
@@ -116,12 +138,12 @@ function ModalNovaEscola({
             </p>
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Nome completo do admin</label>
+            <label className="text-sm font-medium text-zinc-700">Nome completo do admin *</label>
             <input
               value={adminNomeCompleto}
               onChange={(e) => setAdminNomeCompleto(e.target.value)}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
-              placeholder="Opcional (padrao: Administrador + escola)"
+              required
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -131,7 +153,6 @@ function ModalNovaEscola({
               value={adminEmail}
               onChange={(e) => setAdminEmail(e.target.value)}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
-              placeholder="admin@escola.com"
               required
             />
           </div>
@@ -142,9 +163,12 @@ function ModalNovaEscola({
               value={adminPassword}
               onChange={(e) => setAdminPassword(e.target.value)}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
-              placeholder="Min. 8, com maiuscula, minuscula e numero"
               required
+              minLength={8}
             />
+            <p className="text-xs text-zinc-500">
+              Mínimo 8 caracteres, com letra maiúscula, minúscula e número.
+            </p>
           </div>
           {erro && (
             <p className="text-xs text-red-600">{erro}</p>
@@ -201,6 +225,8 @@ export default function SuperAdminEscolasPage() {
       e.codigoEscola.toLowerCase().includes(filtro.toLowerCase()) ||
       e.nomeFantasia.toLowerCase().includes(filtro.toLowerCase())
   );
+  const totalAtivas = escolas.filter((escola) => escola.status === "Ativo").length;
+  const totalInativas = escolas.length - totalAtivas;
 
   async function adicionarEscola(d: {
     codigoEscola: string;
@@ -216,29 +242,66 @@ export default function SuperAdminEscolasPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-zinc-900">Escolas cadastradas</h1>
-        <p className="text-sm text-zinc-500 mt-1">
-          Cadastre escolas (tenants), defina o código de login e inative sem apagar o registro.
-        </p>
+    <div className="max-w-6xl mx-auto flex flex-col gap-6">
+      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-slate-50 to-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-700">
+              Painel Super Admin
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold text-zinc-900">Escolas cadastradas</h1>
+            <p className="text-sm text-zinc-600 mt-1 max-w-2xl">
+              Cadastre escolas (tenants), defina o código de login e acompanhe rapidamente o status de cada unidade.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setModalNova(true)}
+            className="h-10 px-4 text-sm font-medium text-white bg-[#0f172a] rounded-lg hover:bg-[#1e293b] transition-colors shrink-0"
+          >
+            Nova escola
+          </button>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-zinc-200/80 bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">Total</p>
+            <p className="mt-1 text-xl font-semibold text-zinc-900">{escolas.length}</p>
+          </div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-emerald-700">Ativas</p>
+            <p className="mt-1 text-xl font-semibold text-emerald-800">{totalAtivas}</p>
+          </div>
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">Inativas</p>
+            <p className="mt-1 text-xl font-semibold text-zinc-700">{totalInativas}</p>
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <input
-          type="search"
-          value={filtro}
-          onChange={(e) => setFiltro(e.target.value)}
-          placeholder="Buscar por código ou nome..."
-          className="h-10 max-w-sm w-full border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#0f172a] focus:ring-2 focus:ring-[#0f172a]/15"
-        />
-        <button
-          type="button"
-          onClick={() => setModalNova(true)}
-          className="h-10 px-4 text-sm font-medium text-white bg-[#0f172a] rounded-lg hover:bg-[#1e293b] transition-colors shrink-0"
-        >
-          Nova escola
-        </button>
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+        <div className="relative max-w-md">
+          <input
+            type="search"
+            value={filtro}
+            onChange={(e) => setFiltro(e.target.value)}
+            placeholder="Buscar por código ou nome da escola..."
+            aria-label="Buscar por código ou nome"
+            className="h-10 w-full border border-zinc-300 rounded-lg pl-9 pr-3 text-sm outline-none focus:border-[#0f172a] focus:ring-2 focus:ring-[#0f172a]/15"
+          />
+          <svg
+            aria-hidden="true"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <line x1="16.65" y1="16.65" x2="21" y2="21" />
+          </svg>
+        </div>
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
@@ -278,13 +341,16 @@ export default function SuperAdminEscolasPage() {
                 </tr>
               ) : filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-5 py-12 text-center text-zinc-400">
-                    Nenhuma escola encontrada.
+                  <td colSpan={5} className="px-5 py-12 text-center">
+                    <p className="text-zinc-500 font-medium">Nenhuma escola encontrada.</p>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Tente ajustar o filtro ou cadastre uma nova escola.
+                    </p>
                   </td>
                 </tr>
               ) : (
                 filtradas.map((e) => (
-                  <tr key={e.id} className="border-b border-zinc-100 hover:bg-zinc-50/80">
+                  <tr key={e.id} className="border-b border-zinc-100 hover:bg-zinc-50/80 transition-colors">
                     <td className="px-5 py-3 font-mono text-xs text-zinc-800">{e.codigoEscola}</td>
                     <td className="px-5 py-3">
                       <span className="font-medium text-zinc-900">{e.nomeFantasia}</span>
@@ -302,7 +368,7 @@ export default function SuperAdminEscolasPage() {
                         {e.status}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-right text-xs text-zinc-400">—</td>
+                    <td className="px-5 py-3 text-right text-xs text-zinc-500">Em breve</td>
                   </tr>
                 ))
               )}

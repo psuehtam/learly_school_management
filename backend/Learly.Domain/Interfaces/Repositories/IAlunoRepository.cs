@@ -22,4 +22,23 @@ public interface IAlunoRepository : IRepository<Aluno, int>
         string bairro,
         string municipio,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Cria responsável apenas com dados mínimos (funil comercial / pré-aluno).</summary>
+    Task<int> CriarResponsavelMinimoAsync(
+        int escolaId,
+        string tipoPessoa,
+        string cpfCnpj,
+        string nome,
+        string sobrenome,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Insere em contatos_telefone (entidade: aluno ou responsavel, conforme o banco).</summary>
+    Task InserirContatoTelefoneAsync(
+        int escolaId,
+        string entidade,
+        int entidadeId,
+        string tipo,
+        string numero,
+        bool principal,
+        CancellationToken cancellationToken = default);
 }

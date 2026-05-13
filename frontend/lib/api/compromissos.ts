@@ -23,6 +23,8 @@ export interface CriarCompromissoPayload {
   local?: string;
   tipo?: string;
   prioridade?: string;
+  /** Disponivel em atualizacoes (ex.: marcar como concluido). */
+  status?: string;
   lembreteMinutos?: number;
   cor?: string;
   participantesUsuarioIds: number[];

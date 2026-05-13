@@ -1,6 +1,16 @@
 import { apiRequest } from "@/lib/api/client";
 import type { Aluno, Filiacao } from "@/types/aluno";
 
+export type CorRacaAluno =
+  | "Branca"
+  | "Preta"
+  | "Parda"
+  | "Amarela"
+  | "Indigena"
+  | "Nao Declarado";
+
+export type EstadoCivilAluno = "Solteiro" | "Casado" | "Divorciado" | "Viuvo" | "Uniao Estavel";
+
 export interface CriarAlunoPayload {
   eProprioResponsavel: boolean;
   nome: string;
@@ -16,6 +26,19 @@ export interface CriarAlunoPayload {
   complemento?: string;
   bairro: string;
   municipio: string;
+  /** Celular do aluno (opcional se houver responsável com telefone). */
+  alunoTelefone?: string;
+  corRaca?: CorRacaAluno;
+  estadoCivil?: EstadoCivilAluno;
+  profissao?: string;
+  registroEscolar?: string;
+  nacionalidade?: string;
+  dataEntradaPais?: string;
+  naturalidadeCidade?: string;
+  naturalidadeEstado?: string;
+  rgNumero?: string;
+  rgExpedicao?: string;
+  rgOrgao?: string;
   responsavelNome?: string;
   responsavelSobrenome?: string;
   responsavelCpf?: string;
@@ -27,6 +50,8 @@ export interface CriarAlunoPayload {
   responsavelComplemento?: string;
   responsavelBairro?: string;
   responsavelMunicipio?: string;
+  /** Obrigatório quando o aluno não é o próprio responsável. */
+  responsavelTelefone?: string;
 }
 
 export interface CriarAlunoComMatriculaResponse {

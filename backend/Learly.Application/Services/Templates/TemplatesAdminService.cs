@@ -7,6 +7,10 @@ namespace Learly.Application.Services.Templates;
 
 public sealed class TemplatesAdminService : ITemplatesAdminService
 {
+    private static readonly HashSet<string> PermissoesExclusivasSuperAdmin = new(
+        ["GERENCIAR_ESCOLAS", "VISUALIZAR_ESCOLAS"],
+        StringComparer.OrdinalIgnoreCase);
+
     private readonly ITemplatePermissoesRepository _templates;
     private readonly IPermissaoRepository _permissoes;
     private readonly IUnitOfWork _unitOfWork;
@@ -32,7 +36,11 @@ public sealed class TemplatesAdminService : ITemplatesAdminService
         CancellationToken cancellationToken = default)
     {
         var todas = await _permissoes.ListarTodasOrdenadasPorNomeAsync(cancellationToken);
-        var grupos = todas
+        var permissoesPermitidas = todas
+            .Where(p => !PermissoesExclusivasSuperAdmin.Contains(p.Nome))
+            .ToList();
+
+        var grupos = permissoesPermitidas
             .Select(p => new
             {
                 Modulo = PermissaoModuloClassifier.InferirModulo(p.Nome),
@@ -66,11 +74,12 @@ public sealed class TemplatesAdminService : ITemplatesAdminService
 
         var nome = await _templates.ObterNomePerfilTemplateAsync(perfilTemplateId, cancellationToken);
         var ids = await _templates.ObterPermissaoIdsDoPerfilTemplateAsync(perfilTemplateId, cancellationToken);
+        var permitidas = await ObterIdsPermitidasParaTemplatesAsync(cancellationToken);
         return new PerfilTemplatePermissoesResponse
         {
             PerfilTemplateId = perfilTemplateId,
             Nome = nome ?? string.Empty,
-            PermissaoIds = ids
+            PermissaoIds = ids.Where(id => permitidas.Contains(id)).Distinct().ToList()
         };
     }
 
@@ -89,7 +98,11 @@ public sealed class TemplatesAdminService : ITemplatesAdminService
             return SalvarTemplatePermissoesResultado.PerfilNaoEncontrado;
         }
 
-        var ids = request.PermissoesIds ?? [];
+        var permitidas = await ObterIdsPermitidasParaTemplatesAsync(cancellationToken);
+        var ids = (request.PermissoesIds ?? [])
+            .Where(id => permitidas.Contains(id))
+            .Distinct()
+            .ToList();
 
         await _unitOfWork.ExecuteInTransactionAsync(
             async () =>
@@ -100,5 +113,15 @@ public sealed class TemplatesAdminService : ITemplatesAdminService
             cancellationToken);
 
         return SalvarTemplatePermissoesResultado.Ok;
+    }
+
+    private async Task<HashSet<int>> ObterIdsPermitidasParaTemplatesAsync(
+        CancellationToken cancellationToken)
+    {
+        var todas = await _permissoes.ListarTodasOrdenadasPorNomeAsync(cancellationToken);
+        return todas
+            .Where(p => !PermissoesExclusivasSuperAdmin.Contains(p.Nome))
+            .Select(p => p.Id)
+            .ToHashSet();
     }
 }

@@ -11,6 +11,7 @@ import {
   IconDollar,
   IconSettings,
   IconBuilding,
+  IconSliders,
 } from "@/components/icons";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -57,8 +58,8 @@ export const SCHOOL_MENU: MenuEntry[] = [
     items: [
       {
         type: "item",
-        key: "comercial-crm",
-        label: "CRM / Leads",
+        key: "comercial-pre-alunos",
+        label: "Pré-alunos",
         href: "/comercial",
         icon: <IconTrendingUp />,
         permission: "VISUALIZAR_PRE_ALUNO",
@@ -182,6 +183,14 @@ export const SCHOOL_MENU: MenuEntry[] = [
         href: "/usuarios",
         icon: <IconSettings />,
         permission: "VISUALIZAR_USUARIO",
+      },
+      {
+        type: "item",
+        key: "configuracoes",
+        label: "Configurações",
+        href: "/configuracoes",
+        icon: <IconSliders />,
+        permission: "GERENCIAR_CONFIGURACOES_SISTEMA",
       },
     ],
   },

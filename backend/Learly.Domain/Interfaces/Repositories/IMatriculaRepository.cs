@@ -1,4 +1,5 @@
 using Learly.Domain.Entities;
+using Learly.Domain.ReadModels;
 
 namespace Learly.Domain.Interfaces.Repositories;
 
@@ -13,7 +14,7 @@ public interface IMatriculaRepository : IRepository<Matricula, int>
 
     Task<bool> ExisteMatriculaEmEsperaSemTurmaAsync(int escolaId, int alunoId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<Matricula>> ListarPorEscolaComFiltrosAsync(
+    Task<IReadOnlyList<MatriculaListagemItem>> ListarPorEscolaComFiltrosAsync(
         int escolaId,
         string? status,
         int? alunoId,

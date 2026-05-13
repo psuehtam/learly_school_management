@@ -6,7 +6,11 @@ export interface MatriculaListItem {
   id: number;
   escolaId: number;
   alunoId: number;
+  /** Nome + sobrenome do aluno (preenchido pela API na listagem). */
+  alunoNomeCompleto?: string;
   turmaId: number | null;
+  /** Nome da turma quando já vinculada. */
+  turmaNome?: string | null;
   dataMatricula: string;
   status: MatriculaStatus;
   dataCriacao: string;
@@ -19,6 +23,28 @@ export interface ListarMatriculasFiltro {
   turmaId?: number;
 }
 
+/** Normaliza chaves da API (camelCase ou PascalCase) para o tipo usado no app. */
+function normalizarItemMatricula(raw: MatriculaListItem): MatriculaListItem {
+  const r = raw as MatriculaListItem & {
+    AlunoNomeCompleto?: string;
+    TurmaNome?: string | null;
+  };
+  const nomeRaw = raw.alunoNomeCompleto ?? r.AlunoNomeCompleto;
+  const nome = typeof nomeRaw === "string" ? nomeRaw.trim() : "";
+  const turmaRaw = raw.turmaNome ?? r.TurmaNome;
+  const turma =
+    turmaRaw === null || turmaRaw === undefined
+      ? turmaRaw
+      : typeof turmaRaw === "string"
+        ? turmaRaw.trim() || null
+        : turmaRaw;
+  return {
+    ...raw,
+    alunoNomeCompleto: nome || undefined,
+    turmaNome: turma as string | null | undefined,
+  };
+}
+
 export async function listarMatriculas(filtro?: ListarMatriculasFiltro): Promise<MatriculaListItem[]> {
   const params = new URLSearchParams();
 
@@ -27,7 +53,8 @@ export async function listarMatriculas(filtro?: ListarMatriculasFiltro): Promise
   if (typeof filtro?.turmaId === "number") params.set("turmaId", String(filtro.turmaId));
 
   const query = params.toString();
-  return apiRequest<MatriculaListItem[]>(`/api/matriculas${query ? `?${query}` : ""}`);
+  const data = await apiRequest<MatriculaListItem[]>(`/api/matriculas${query ? `?${query}` : ""}`);
+  return data.map(normalizarItemMatricula);
 }
 
 export async function cancelarMatriculaById(matriculaId: number): Promise<void> {

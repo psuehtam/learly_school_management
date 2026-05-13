@@ -31,3 +31,13 @@ body {
 input{
   color: #000000 !important;
 }
+
+select,
+select option {
+  color: #18181b;
+  background-color: #ffffff;
+}
+
+select:focus {
+  color: #18181b;
+}

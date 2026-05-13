@@ -1,33 +1,57 @@
 import { apiRequest } from "@/lib/api/client";
-import type { Livro, Capitulo } from "@/types/turma";
 
-export async function listarLivros(): Promise<Livro[]> {
-  return apiRequest<Livro[]>("/api/livros");
+export type LivroCapituloEscolaDto = {
+  id: number;
+  nome: string;
+  qtdAulasPrevistas: number;
+  status: string;
+};
+
+/** Catálogo de livros/níveis da escola (`livros` + totais de `capitulos` / `qtd_aulas_previstas`). */
+export type LivroEscolaDto = {
+  id: number;
+  nome: string;
+  status: "Ativo" | "Inativo";
+  quantidadeCapitulos: number;
+  totalAulasPrevistas: number;
+  /** Preenchido no GET por id; ausente ou `null` na listagem. */
+  capitulos?: LivroCapituloEscolaDto[] | null;
+};
+
+export type AtualizarLivroEscolaPayload = {
+  nome?: string;
+  status?: "Ativo" | "Inativo";
+  capitulosAulas?: { capituloId: number; qtdAulasPrevistas: number }[];
+  /** Novos capítulos no final do livro (nome opcional; se vazio, o backend usa "Capítulo N"). */
+  capitulosNovos?: { nome?: string; qtdAulasPrevistas: number }[];
+};
+
+export async function listarLivrosEscola(): Promise<LivroEscolaDto[]> {
+  return apiRequest<LivroEscolaDto[]>("/api/livros");
 }
 
-export async function buscarLivro(id: number): Promise<Livro> {
-  return apiRequest<Livro>(`/api/livros/${id}`);
+export async function obterLivroEscola(id: number): Promise<LivroEscolaDto> {
+  return apiRequest<LivroEscolaDto>(`/api/livros/${id}`);
 }
 
-export async function criarLivro(dados: Partial<Livro>): Promise<Livro> {
-  return apiRequest<Livro>("/api/livros", { method: "POST", body: dados });
-}
-
-export async function editarLivro(id: number, dados: Partial<Livro>): Promise<Livro> {
-  return apiRequest<Livro>(`/api/livros/${id}`, { method: "PUT", body: dados });
-}
-
-export async function listarCapitulos(livroId: number): Promise<Capitulo[]> {
-  return apiRequest<Capitulo[]>(`/api/livros/${livroId}/capitulos`);
-}
-
-export async function criarCapitulo(livroId: number, dados: Partial<Capitulo>): Promise<Capitulo> {
-  return apiRequest<Capitulo>(`/api/livros/${livroId}/capitulos`, {
+export async function criarLivroEscola(payload: {
+  nome: string;
+  quantidadeCapitulos: number;
+  /** Um valor por capítulo (ordem: Capítulo 1 … N), alinhado a `qtd_aulas_previstas` no banco. */
+  aulasPrevistasPorCapitulo: number[];
+}): Promise<LivroEscolaDto> {
+  return apiRequest<LivroEscolaDto>("/api/livros", {
     method: "POST",
-    body: dados,
+    body: payload,
   });
 }
 
-export async function editarCapitulo(id: number, dados: Partial<Capitulo>): Promise<Capitulo> {
-  return apiRequest<Capitulo>(`/api/capitulos/${id}`, { method: "PUT", body: dados });
+export async function atualizarLivroEscola(
+  id: number,
+  payload: AtualizarLivroEscolaPayload,
+): Promise<LivroEscolaDto> {
+  return apiRequest<LivroEscolaDto>(`/api/livros/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }

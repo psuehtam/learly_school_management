@@ -109,6 +109,18 @@ public sealed class Aluno
         internal set => _municipio = ValidarObrigatorio(value, "Municipio do aluno e obrigatorio.");
     }
 
+    public string? CorRaca { get; internal set; }
+    public string? EstadoCivil { get; internal set; }
+    public string? Profissao { get; internal set; }
+    public string? RegistroEscolar { get; internal set; }
+    public string? Nacionalidade { get; internal set; }
+    public DateOnly? DataEntradaPais { get; internal set; }
+    public string? NaturalidadeCidade { get; internal set; }
+    public string? NaturalidadeEstado { get; internal set; }
+    public string? RgNumero { get; internal set; }
+    public DateOnly? RgExpedicao { get; internal set; }
+    public string? RgOrgao { get; internal set; }
+
     private string _status = Estados.Ativo;
     public string Status
     {
