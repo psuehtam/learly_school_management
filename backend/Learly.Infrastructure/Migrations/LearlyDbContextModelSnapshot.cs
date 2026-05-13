@@ -136,6 +136,55 @@ namespace Learly.Infrastructure.Migrations
                     b.ToTable("escolas", (string)null);
                 });
 
+            modelBuilder.Entity("Learly.Domain.Entities.Matricula", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("id");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AlunoId")
+                        .HasColumnType("int")
+                        .HasColumnName("aluno_id");
+
+                    b.Property<DateTime>("DataAtualizacao")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("data_atualizacao");
+
+                    b.Property<DateTime>("DataCriacao")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("data_criacao");
+
+                    b.Property<DateOnly>("DataMatricula")
+                        .HasColumnType("date")
+                        .HasColumnName("data_matricula");
+
+                    b.Property<int>("EscolaId")
+                        .HasColumnType("int")
+                        .HasColumnName("escola_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("enum('Ativo','Concluido','Trancado','Cancelado','Em Espera')")
+                        .HasColumnName("status");
+
+                    b.Property<int?>("TurmaId")
+                        .HasColumnType("int")
+                        .HasColumnName("turma_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TurmaId");
+
+                    b.HasIndex("EscolaId", "AlunoId", "TurmaId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_matriculas_escola_aluno_turma");
+
+                    b.ToTable("matriculas", (string)null);
+                });
+
             modelBuilder.Entity("Learly.Domain.Entities.Perfil", b =>
                 {
                     b.Property<int>("Id")
@@ -413,6 +462,20 @@ namespace Learly.Infrastructure.Migrations
                         .HasForeignKey("TurmaId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Learly.Domain.Entities.Matricula", b =>
+                {
+                    b.HasOne("Learly.Domain.Entities.Escola", null)
+                        .WithMany()
+                        .HasForeignKey("EscolaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Learly.Domain.Entities.Turma", null)
+                        .WithMany()
+                        .HasForeignKey("TurmaId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Learly.Domain.Entities.Perfil", b =>

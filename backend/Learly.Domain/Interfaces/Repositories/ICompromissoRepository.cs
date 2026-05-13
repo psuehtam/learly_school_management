@@ -24,6 +24,10 @@ public interface ICompromissoRepository : IRepository<Compromisso, int>
         int compromissoId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyDictionary<int, IReadOnlyList<int>>> ListarParticipantesIdsPorCompromissosAsync(
+        IReadOnlyCollection<int> compromissoIds,
+        CancellationToken cancellationToken = default);
+
     Task DefinirParticipantesAsync(
         int compromissoId,
         IReadOnlyCollection<int> usuarioIds,
@@ -42,5 +46,10 @@ public interface ICompromissoRepository : IRepository<Compromisso, int>
         IReadOnlyCollection<int> usuarioIds,
         DateTime dataInicio,
         DateTime dataFim,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> ExisteCompromissoAtivoNoDiaAsync(
+        int escolaId,
+        DateOnly data,
         CancellationToken cancellationToken = default);
 }

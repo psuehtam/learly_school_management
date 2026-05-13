@@ -1,66 +1,129 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import { cn } from "@/utils/cn";
 
-interface ModalProps {
+const ModalRequestCloseContext = createContext<(() => void) | null>(null);
+
+/** Use dentro do conteúdo/rodapé do mesmo `<Modal>` para o mesmo comportamento de “sair com confirmação”. */
+export function useModalRequestClose(): () => void {
+  const ctx = useContext(ModalRequestCloseContext);
+  return ctx ?? (() => {});
+}
+
+export type ModalProps = {
   open: boolean;
   onClose: () => void;
   title?: string;
   children: ReactNode;
-  footer?: ReactNode;
+  /** Pode ser nó estático ou função que recebe `requestClose` (com confirmação se `hasUnsavedChanges`). */
+  footer?: ReactNode | ((requestClose: () => void) => ReactNode);
   className?: string;
-}
+  /** Se true, overlay, ESC, botão X e `requestClose` pedem confirmação antes de chamar `onClose`. */
+  hasUnsavedChanges?: boolean;
+  confirmDiscardMessage?: string;
+  /** Impede qualquer fechamento (ex.: salvando). */
+  closeDisabled?: boolean;
+};
 
-export function Modal({ open, onClose, title, children, footer, className }: ModalProps) {
+const DEFAULT_CONFIRM =
+  "Deseja sair sem salvar? As informações não salvas serão perdidas.";
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  className,
+  hasUnsavedChanges = false,
+  confirmDiscardMessage,
+  closeDisabled = false,
+}: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  const tryClose = useCallback(() => {
+    if (closeDisabled) return;
+    if (!hasUnsavedChanges) {
+      onClose();
+      return;
+    }
+    const msg = confirmDiscardMessage ?? DEFAULT_CONFIRM;
+    if (typeof window !== "undefined" && window.confirm(msg)) {
+      onClose();
+    }
+  }, [closeDisabled, hasUnsavedChanges, onClose, confirmDiscardMessage]);
 
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") tryClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  }, [open, tryClose]);
 
   if (!open) return null;
 
+  const footerNode = typeof footer === "function" ? footer(tryClose) : footer;
+
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
-    >
+    <ModalRequestCloseContext.Provider value={tryClose}>
       <div
-        className={cn(
-          "bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden animate-in fade-in zoom-in-95",
-          className,
-        )}
-        role="dialog"
-        aria-modal="true"
+        ref={overlayRef}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        onClick={(e) => {
+          if (e.target === overlayRef.current) tryClose();
+        }}
       >
-        {title && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
-            <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-        )}
-        <div className="px-6 py-4">{children}</div>
-        {footer && (
-          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-zinc-200 bg-zinc-50">
-            {footer}
-          </div>
-        )}
+        <div
+          className={cn(
+            "bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden animate-in fade-in zoom-in-95",
+            className,
+          )}
+          role="dialog"
+          aria-modal="true"
+        >
+          {title && (
+            <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
+              <button
+                type="button"
+                onClick={tryClose}
+                disabled={closeDisabled}
+                className="cursor-pointer text-zinc-400 transition-colors hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          )}
+          <div className="px-6 py-4">{children}</div>
+          {footerNode ? (
+            <div className="flex items-center justify-end gap-2 border-t border-zinc-200 bg-zinc-50 px-6 py-4">
+              {footerNode}
+            </div>
+          ) : null}
+        </div>
       </div>
-    </div>
+    </ModalRequestCloseContext.Provider>
   );
 }

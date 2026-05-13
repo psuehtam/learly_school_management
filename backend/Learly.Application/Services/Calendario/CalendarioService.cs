@@ -12,17 +12,20 @@ namespace Learly.Application.Services.Calendario;
 public sealed class CalendarioService : ICalendarioService
 {
     private readonly ICalendarioGeralRepository _calendario;
+    private readonly ICompromissoRepository _compromissos;
     private readonly IEscolaRepository _escolas;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
 
     public CalendarioService(
         ICalendarioGeralRepository calendario,
+        ICompromissoRepository compromissos,
         IEscolaRepository escolas,
         IUnitOfWork unitOfWork,
         IMapper mapper)
     {
         _calendario = calendario;
+        _compromissos = compromissos;
         _escolas = escolas;
         _unitOfWork = unitOfWork;
         _mapper = mapper;
@@ -70,6 +73,14 @@ public sealed class CalendarioService : ICalendarioService
         {
             return (false, null, ex.Message, 400);
         }
+
+        if (string.Equals(tipoNormalizado, CalendarioGeral.TiposEvento.SemAula, StringComparison.OrdinalIgnoreCase))
+        {
+            var validarSemAula = await ValidarCriacaoSemAulaAsync(escolaId.Value, request.DataEvento, cancellationToken);
+            if (validarSemAula.Error is not null)
+                return (false, null, validarSemAula.Error, validarSemAula.StatusCode);
+        }
+
         var entidade = new CalendarioGeral
         {
             EscolaId = escolaId.Value,
@@ -120,6 +131,15 @@ public sealed class CalendarioService : ICalendarioService
             return (false, null, ex.Message, 400);
         }
 
+        var validandoSemAula = string.Equals(tipoEvento, CalendarioGeral.TiposEvento.SemAula, StringComparison.OrdinalIgnoreCase)
+            && (request.TipoEvento is not null || request.DataEvento.HasValue);
+        if (validandoSemAula)
+        {
+            var validarSemAula = await ValidarCriacaoSemAulaAsync(escolaId.Value, novaData, cancellationToken);
+            if (validarSemAula.Error is not null)
+                return (false, null, validarSemAula.Error, validarSemAula.StatusCode);
+        }
+
         entidade.DataEvento = novaData;
         entidade.TipoEvento = tipoEvento;
         if (request.Descricao is not null)
@@ -146,6 +166,26 @@ public sealed class CalendarioService : ICalendarioService
         _calendario.Remover(entidade);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return (true, null, 204);
+    }
+
+    private async Task<(string? Error, int StatusCode)> ValidarCriacaoSemAulaAsync(
+        int escolaId,
+        DateOnly dataEvento,
+        CancellationToken cancellationToken)
+    {
+        var hoje = DateOnly.FromDateTime(DateTime.Now);
+        if (dataEvento < hoje)
+            return ("Nao e permitido criar 'SEM AULA' em data anterior a hoje.", 400);
+
+        if (dataEvento == hoje)
+            return ("Nao e permitido criar 'SEM AULA' para o dia atual.", 400);
+
+        if (await _compromissos.ExisteCompromissoAtivoNoDiaAsync(escolaId, dataEvento, cancellationToken))
+        {
+            return ("Ja existem compromissos neste dia. Reagende/cancele os compromissos antes de marcar 'SEM AULA'.", 409);
+        }
+
+        return (null, 200);
     }
 
     private Task<int?> ObterIdEscolaAtivaPorCodigoAsync(string? codigoEscola, CancellationToken cancellationToken)

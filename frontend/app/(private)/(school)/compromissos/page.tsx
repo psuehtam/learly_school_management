@@ -32,6 +32,13 @@ const initialForm: FormState = {
   participantesUsuarioIds: [],
 };
 
+function formatDateLocal(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function CompromissosPage() {
   const [compromissos, setCompromissos] = useState<Compromisso[]>([]);
   const [form, setForm] = useState<FormState>(initialForm);
@@ -91,7 +98,7 @@ export default function CompromissosPage() {
   function preencherFormularioParaEdicao(compromisso: Compromisso) {
     const inicio = new Date(compromisso.dataInicio);
     const fim = new Date(compromisso.dataFim);
-    const data = inicio.toISOString().slice(0, 10);
+    const data = formatDateLocal(inicio);
     const horaInicio = `${String(inicio.getHours()).padStart(2, "0")}:${String(inicio.getMinutes()).padStart(2, "0")}`;
     const horaFim = `${String(fim.getHours()).padStart(2, "0")}:${String(fim.getMinutes()).padStart(2, "0")}`;
 
@@ -120,12 +127,32 @@ export default function CompromissosPage() {
     setError(null);
 
     try {
+      const titulo = form.titulo.trim();
+      if (!titulo) {
+        setError("Informe o titulo do compromisso.");
+        return;
+      }
+
+      if (!form.data || !form.horaInicio || !form.horaFim) {
+        setError("Informe data e horario de inicio/fim.");
+        return;
+      }
+
+      if (form.participantesUsuarioIds.length === 0) {
+        setError("Selecione ao menos um participante.");
+        return;
+      }
+
       const dataInicio = `${form.data}T${form.horaInicio}:00`;
       const dataFim = `${form.data}T${form.horaFim}:00`;
+      if (new Date(dataFim).getTime() <= new Date(dataInicio).getTime()) {
+        setError("Horario fim deve ser maior que horario inicio.");
+        return;
+      }
 
       if (editingId) {
         await editarCompromisso(editingId, {
-          titulo: form.titulo,
+          titulo,
           descricao: form.descricao || undefined,
           local: form.local || undefined,
           dataInicio,
@@ -136,7 +163,7 @@ export default function CompromissosPage() {
         });
       } else {
         await criarCompromisso({
-          titulo: form.titulo,
+          titulo,
           descricao: form.descricao || undefined,
           local: form.local || undefined,
           dataInicio,

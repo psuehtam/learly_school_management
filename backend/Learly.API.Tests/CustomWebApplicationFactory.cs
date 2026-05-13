@@ -46,8 +46,14 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     private static void Seed(LearlyDbContext db)
     {
+        db.Matriculas.RemoveRange(db.Matriculas);
+        db.PreAlunos.RemoveRange(db.PreAlunos);
+        db.Alunos.RemoveRange(db.Alunos);
+        db.Responsaveis.RemoveRange(db.Responsaveis);
         db.Aulas.RemoveRange(db.Aulas);
         db.Turmas.RemoveRange(db.Turmas);
+        db.Capitulos.RemoveRange(db.Capitulos);
+        db.Livros.RemoveRange(db.Livros);
         db.UsuarioPermissoes.RemoveRange(db.UsuarioPermissoes);
         db.PerfilPermissoes.RemoveRange(db.PerfilPermissoes);
         db.Usuarios.RemoveRange(db.Usuarios);
@@ -119,6 +125,18 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
             Status = "Ativo"
         };
         db.Usuarios.Add(professor);
+        db.SaveChanges();
+
+        var livroTenant = new Livro
+        {
+            Id = 1,
+            EscolaId = escolaTenant.Id,
+            Nome = "Livro Teste",
+            Status = "Ativo",
+            DataCriacao = DateTime.UtcNow,
+            DataAtualizacao = DateTime.UtcNow
+        };
+        db.Livros.Add(livroTenant);
         db.SaveChanges();
 
         var turma = new Turma

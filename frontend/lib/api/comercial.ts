@@ -1,26 +1,40 @@
 import { apiRequest } from "@/lib/api/client";
-import type { PreAluno, Contrato, ContratoTemplate } from "@/types/comercial";
+import type {
+  PreAlunoListItem,
+  Contrato,
+  ContratoTemplate,
+  LivroInteresseOpcao,
+  CriarPreAlunoPayload,
+} from "@/types/comercial";
 import type { Aluno } from "@/types/aluno";
 
-export async function listarPreAlunos(filtros?: Record<string, string>): Promise<PreAluno[]> {
+export async function listarLivrosInteressePreAluno(): Promise<LivroInteresseOpcao[]> {
+  return apiRequest<LivroInteresseOpcao[]>("/api/pre-alunos/livros-interesse");
+}
+
+export async function listarPreAlunos(filtros?: Record<string, string>): Promise<PreAlunoListItem[]> {
   const params = filtros ? `?${new URLSearchParams(filtros)}` : "";
-  return apiRequest<PreAluno[]>(`/api/pre-alunos${params}`);
+  return apiRequest<PreAlunoListItem[]>(`/api/pre-alunos${params}`);
 }
 
-export async function buscarPreAluno(id: number): Promise<PreAluno> {
-  return apiRequest<PreAluno>(`/api/pre-alunos/${id}`);
+export async function buscarPreAluno(id: number): Promise<unknown> {
+  return apiRequest<unknown>(`/api/pre-alunos/${id}`);
 }
 
-export async function criarPreAluno(dados: Partial<PreAluno>): Promise<PreAluno> {
-  return apiRequest<PreAluno>("/api/pre-alunos", { method: "POST", body: dados });
+export async function criarPreAluno(dados: CriarPreAlunoPayload): Promise<{ id: number }> {
+  return apiRequest<{ id: number }>("/api/pre-alunos", { method: "POST", body: dados });
 }
 
-export async function editarPreAluno(id: number, dados: Partial<PreAluno>): Promise<PreAluno> {
-  return apiRequest<PreAluno>(`/api/pre-alunos/${id}`, { method: "PUT", body: dados });
+export async function editarPreAluno(id: number, dados: Partial<unknown>): Promise<unknown> {
+  return apiRequest<unknown>(`/api/pre-alunos/${id}`, { method: "PUT", body: dados });
 }
 
 export async function cancelarPreAluno(id: number): Promise<void> {
   await apiRequest<void>(`/api/pre-alunos/${id}/cancelar`, { method: "PATCH" });
+}
+
+export async function submeterPreAlunoParaAprovacao(id: number): Promise<void> {
+  await apiRequest<void>(`/api/pre-alunos/${id}/submeter-aprovacao`, { method: "PATCH" });
 }
 
 export async function aprovarMatricula(preAlunoId: number): Promise<void> {

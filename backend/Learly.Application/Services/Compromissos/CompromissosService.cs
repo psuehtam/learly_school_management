@@ -12,6 +12,7 @@ public sealed class CompromissosService : ICompromissosService
 {
     private readonly ICompromissoRepository _compromissos;
     private readonly ICalendarioGeralRepository _calendario;
+    private readonly IEscolaHorarioFuncionamentoRepository _horariosFuncionamento;
     private readonly IEscolaRepository _escolas;
     private readonly IUsuarioRepository _usuarios;
     private readonly IUnitOfWork _unitOfWork;
@@ -19,12 +20,14 @@ public sealed class CompromissosService : ICompromissosService
     public CompromissosService(
         ICompromissoRepository compromissos,
         ICalendarioGeralRepository calendario,
+        IEscolaHorarioFuncionamentoRepository horariosFuncionamento,
         IEscolaRepository escolas,
         IUsuarioRepository usuarios,
         IUnitOfWork unitOfWork)
     {
         _compromissos = compromissos;
         _calendario = calendario;
+        _horariosFuncionamento = horariosFuncionamento;
         _escolas = escolas;
         _usuarios = usuarios;
         _unitOfWork = unitOfWork;
@@ -37,10 +40,14 @@ public sealed class CompromissosService : ICompromissosService
             return [];
 
         var items = await _compromissos.ListarPorEscolaEUsuarioAsync(escolaId.Value, uc.UserId, cancellationToken);
+        var participantesPorCompromisso = await _compromissos.ListarParticipantesIdsPorCompromissosAsync(
+            items.Select(i => i.Id).ToArray(),
+            cancellationToken);
         var result = new List<CompromissoResponse>(items.Count);
         foreach (var item in items)
         {
-            var participantes = await _compromissos.ListarParticipantesIdsAsync(item.Id, cancellationToken);
+            participantesPorCompromisso.TryGetValue(item.Id, out var participantes);
+            participantes ??= [];
             result.Add(ToResponse(item, participantes));
         }
 
@@ -58,10 +65,14 @@ public sealed class CompromissosService : ICompromissosService
             return [];
 
         var items = await _compromissos.ListarAgendaGlobalAsync(escolaId.Value, data, usuarioId, cancellationToken);
+        var participantesPorCompromisso = await _compromissos.ListarParticipantesIdsPorCompromissosAsync(
+            items.Select(i => i.Id).ToArray(),
+            cancellationToken);
         var result = new List<CompromissoResponse>(items.Count);
         foreach (var item in items)
         {
-            var participantes = await _compromissos.ListarParticipantesIdsAsync(item.Id, cancellationToken);
+            participantesPorCompromisso.TryGetValue(item.Id, out var participantes);
+            participantes ??= [];
             result.Add(ToResponse(item, participantes));
         }
 
@@ -86,6 +97,7 @@ public sealed class CompromissosService : ICompromissosService
             request.DataFim,
             participantes,
             null,
+            true,
             cancellationToken);
         if (validar is not null)
             return (false, null, validar, 409);
@@ -137,8 +149,11 @@ public sealed class CompromissosService : ICompromissosService
         if (entidade is null)
             return (false, null, "Compromisso nao encontrado.", 404);
 
-        if (string.Equals(entidade.Status, Compromisso.Statuses.Concluido, StringComparison.OrdinalIgnoreCase))
-            return (false, null, "Compromisso concluido nao pode ser editado.", 409);
+        if (string.Equals(entidade.Status, Compromisso.Statuses.Concluido, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(entidade.Status, Compromisso.Statuses.Cancelado, StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, null, "Compromisso concluido ou cancelado nao pode ser editado.", 409);
+        }
 
         var participantesAtuais = await _compromissos.ListarParticipantesIdsAsync(id, cancellationToken);
         var participantes = request.ParticipantesUsuarioIds?.Where(idp => idp > 0).Distinct().ToList()
@@ -155,23 +170,23 @@ public sealed class CompromissosService : ICompromissosService
             novoFim,
             participantes,
             entidade.Id,
+            request.DataInicio.HasValue || request.DataFim.HasValue,
             cancellationToken);
         if (validar is not null)
             return (false, null, validar, 409);
 
-        entidade.Titulo = request.Titulo ?? entidade.Titulo;
-        if (request.Descricao is not null) entidade.Descricao = request.Descricao;
-        entidade.DataInicio = novoInicio;
-        entidade.DataFim = novoFim;
-        if (request.Local is not null) entidade.Local = request.Local;
-        if (request.Tipo is not null) entidade.Tipo = request.Tipo;
-        if (request.Prioridade is not null) entidade.Prioridade = request.Prioridade;
-        if (request.Status is not null) entidade.Status = request.Status;
-        if (request.LembreteMinutos.HasValue) entidade.LembreteMinutos = request.LembreteMinutos;
-        if (request.Cor is not null) entidade.Cor = request.Cor;
-
         try
         {
+            entidade.Titulo = request.Titulo ?? entidade.Titulo;
+            if (request.Descricao is not null) entidade.Descricao = request.Descricao;
+            entidade.DataInicio = novoInicio;
+            entidade.DataFim = novoFim;
+            if (request.Local is not null) entidade.Local = request.Local;
+            if (request.Tipo is not null) entidade.Tipo = request.Tipo;
+            if (request.Prioridade is not null) entidade.Prioridade = request.Prioridade;
+            if (request.Status is not null) entidade.AlterarStatus(request.Status);
+            if (request.LembreteMinutos.HasValue) entidade.LembreteMinutos = request.LembreteMinutos;
+            if (request.Cor is not null) entidade.Cor = request.Cor;
             entidade.ValidarIntervalo();
         }
         catch (DomainException ex)
@@ -206,10 +221,18 @@ public sealed class CompromissosService : ICompromissosService
         var motivoLimpo = motivo.Trim();
         var carimbo = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
         var anotacao = $"[CANCELADO EM {carimbo} UTC] Motivo: {motivoLimpo}";
-        entidade.Descricao = string.IsNullOrWhiteSpace(entidade.Descricao)
-            ? anotacao
-            : $"{entidade.Descricao}\n{anotacao}";
-        entidade.Status = Compromisso.Statuses.Cancelado;
+        try
+        {
+            entidade.Descricao = string.IsNullOrWhiteSpace(entidade.Descricao)
+                ? anotacao
+                : $"{entidade.Descricao}\n{anotacao}";
+            entidade.AlterarStatus(Compromisso.Statuses.Cancelado);
+        }
+        catch (DomainException ex)
+        {
+            return (false, ex.Message, 409);
+        }
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return (true, null, 204);
     }
@@ -220,6 +243,7 @@ public sealed class CompromissosService : ICompromissosService
         DateTime dataFim,
         IReadOnlyCollection<int> participantes,
         int? compromissoIgnoradoId,
+        bool validarDataEHorarioFuncionamento,
         CancellationToken cancellationToken)
     {
         if (dataFim <= dataInicio)
@@ -229,6 +253,28 @@ public sealed class CompromissosService : ICompromissosService
             return "Compromisso deve iniciar e terminar no mesmo dia.";
 
         var data = DateOnly.FromDateTime(dataInicio);
+        if (validarDataEHorarioFuncionamento)
+        {
+            var hoje = DateOnly.FromDateTime(DateTime.Now);
+            if (data < hoje)
+                return "Nao e permitido criar compromisso em data anterior a hoje.";
+
+            if (!await _horariosFuncionamento.PossuiConfiguracaoAsync(escolaId, cancellationToken))
+                return "Horario de funcionamento da escola nao configurado. Cadastre os horarios no banco.";
+
+            var diaSemana = (int)data.DayOfWeek;
+            var horarioDia = await _horariosFuncionamento.ObterPorDiaSemanaAsync(escolaId, diaSemana, cancellationToken);
+            if (horarioDia is null || !horarioDia.Aberto)
+                return "Nao e permitido criar compromisso em dia que a escola nao abre.";
+
+            var horaInicio = TimeOnly.FromDateTime(dataInicio);
+            var horaFim = TimeOnly.FromDateTime(dataFim);
+            if (!horarioDia.PermiteIntervalo(horaInicio, horaFim))
+            {
+                return "Horario do compromisso fora do horario de funcionamento da escola para este dia.";
+            }
+        }
+
         if (await _calendario.DiaSuspendeAulaAsync(escolaId, data, cancellationToken))
             return "Nao e permitido criar compromisso em dia sem aula, feriado ou recesso.";
 

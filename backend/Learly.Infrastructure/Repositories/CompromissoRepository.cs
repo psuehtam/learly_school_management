@@ -74,6 +74,27 @@ internal sealed class CompromissoRepository(LearlyDbContext db)
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<int, IReadOnlyList<int>>> ListarParticipantesIdsPorCompromissosAsync(
+        IReadOnlyCollection<int> compromissoIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = compromissoIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new Dictionary<int, IReadOnlyList<int>>();
+
+        var rows = await Db.CompromissosParticipantes
+            .AsNoTracking()
+            .Where(p => ids.Contains(p.CompromissoId))
+            .Select(p => new { p.CompromissoId, p.UsuarioId })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(r => r.CompromissoId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<int>)g.Select(x => x.UsuarioId).Distinct().ToList());
+    }
+
     public async Task DefinirParticipantesAsync(
         int compromissoId,
         IReadOnlyCollection<int> usuarioIds,
@@ -150,6 +171,24 @@ internal sealed class CompromissoRepository(LearlyDbContext db)
                 && a.DataAula == data
                 && a.HorarioInicio < fim
                 && a.HorarioFim > inicio,
+                cancellationToken);
+    }
+
+    public Task<bool> ExisteCompromissoAtivoNoDiaAsync(
+        int escolaId,
+        DateOnly data,
+        CancellationToken cancellationToken = default)
+    {
+        var inicio = data.ToDateTime(TimeOnly.MinValue);
+        var fim = data.ToDateTime(new TimeOnly(23, 59, 59));
+
+        return Db.Compromissos
+            .AsNoTracking()
+            .AnyAsync(c =>
+                c.EscolaId == escolaId
+                && c.Status != Compromisso.Statuses.Cancelado
+                && c.DataInicio <= fim
+                && c.DataFim >= inicio,
                 cancellationToken);
     }
 }

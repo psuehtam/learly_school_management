@@ -86,36 +86,6 @@ public static class PipelineConfig
             return Results.Ok(new { userId, nome, perfil, isSuperAdmin, codigoEscola, appRole, permissoes });
         });
 
-        app.MapGet("/api/pre-alunos", [Microsoft.AspNetCore.Authorization.Authorize(Policy = "VISUALIZAR_PRE_ALUNO")] (ClaimsPrincipal user) =>
-        {
-            if (!IsSchoolUser(user))
-            {
-                return Results.Forbid();
-            }
-
-            return Results.Ok(new { mensagem = "OK: Permissão VISUALIZAR_PRE_ALUNO concedida" });
-        });
-
-        app.MapGet("/api/pre-alunos/criar", [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CRIAR_PRE_ALUNO")] (ClaimsPrincipal user) =>
-        {
-            if (!IsSchoolUser(user))
-            {
-                return Results.Forbid();
-            }
-
-            return Results.Ok(new { mensagem = "OK: Permissão CRIAR_PRE_ALUNO concedida" });
-        });
-
         return app;
-    }
-
-    private static bool IsSchoolUser(ClaimsPrincipal user)
-    {
-        var isSuperAdmin = string.Equals(
-            user.FindFirst("isSuperAdmin")?.Value,
-            "true",
-            StringComparison.OrdinalIgnoreCase);
-        var codigoEscola = user.FindFirst("codigoEscola")?.Value;
-        return !isSuperAdmin && !string.IsNullOrWhiteSpace(codigoEscola);
     }
 }

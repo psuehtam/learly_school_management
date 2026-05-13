@@ -1,8 +1,13 @@
 using Learly.Application.Mapping;
+using Learly.Application.Services.Alunos;
 using Learly.Application.Services.Aulas;
 using Learly.Application.Services.Calendario;
 using Learly.Application.Services.Compromissos;
 using Learly.Application.Services.Escolas;
+using Learly.Application.Services.HorariosFuncionamento;
+using Learly.Application.Services.Livros;
+using Learly.Application.Services.Matriculas;
+using Learly.Application.Services.PreAlunos;
 using Learly.Application.Services.Templates;
 using Learly.Application.Services.Usuarios;
 using Mapster;
@@ -22,8 +27,17 @@ public static class DependencyInjection
 
         services.AddScoped<IEscolasService, EscolasService>();
         services.AddScoped<IAulasService, AulasService>();
+
+        services.AddScoped<IAlunosService, AlunosService>();
+        services.AddScoped<IMatriculasService, MatriculasService>();
+
+        services.AddScoped<IPreAlunosService, PreAlunosService>();
+        services.AddScoped<ILivrosEscolaService, LivrosEscolaService>();
+
         services.AddScoped<ICalendarioService, CalendarioService>();
         services.AddScoped<ICompromissosService, CompromissosService>();
+        services.AddScoped<IHorariosFuncionamentoService, HorariosFuncionamentoService>();
+
         services.AddScoped<IUsuariosService, UsuariosService>();
         services.AddScoped<ITemplatesAdminService, TemplatesAdminService>();
 
