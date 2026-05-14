@@ -41,7 +41,7 @@ function ModalUsuario({
   saving,
   errorMessage,
 }: ModalProps) {
-  const [form, setForm] = useState({
+  const [formNovoUsuario, setFormNovoUsuario] = useState({
     nomeCompleto: usuario?.nomeCompleto ?? "",
     email: usuario?.email ?? "",
     senha: "",
@@ -55,38 +55,45 @@ function ModalUsuario({
     field: "nomeCompleto" | "email" | "senha" | "perfilId" | "status",
     value: string,
   ) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setFormNovoUsuario((prev) => ({ ...prev, [field]: value }));
   }
 
   async function handleSubmit() {
     if (isCreate) {
       await onCreate({
-        nomeCompleto: form.nomeCompleto,
-        email: form.email,
-        senha: form.senha,
-        perfilId: Number(form.perfilId),
+        nomeCompleto: formNovoUsuario.nomeCompleto,
+        email: formNovoUsuario.email,
+        senha: formNovoUsuario.senha,
+        perfilId: Number(formNovoUsuario.perfilId),
       });
       return;
     }
 
     await onEdit({
-      nomeCompleto: form.nomeCompleto,
-      email: form.email,
-      perfilId: Number(form.perfilId),
-      status: form.status as "Ativo" | "Inativo",
+      nomeCompleto: formNovoUsuario.nomeCompleto,
+      email: formNovoUsuario.email,
+      perfilId: Number(formNovoUsuario.perfilId),
+      status: formNovoUsuario.status as "Ativo" | "Inativo",
     });
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
+      <form
+        className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 flex flex-col"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSubmit();
+        }}
+        autoComplete={isCreate ? "off" : "on"}
+      >
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
           <h2 className="text-base font-semibold text-zinc-900">
             {isCreate ? "Novo usuario" : "Editar usuario"}
           </h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 transition-colors">
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600 transition-colors">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -100,7 +107,9 @@ function ModalUsuario({
             <label className="text-sm font-medium text-zinc-700">Nome completo *</label>
             <input
               type="text"
-              value={form.nomeCompleto}
+              name="modal-usuario-nome-completo"
+              autoComplete="name"
+              value={formNovoUsuario.nomeCompleto}
               onChange={(e) => handleChange("nomeCompleto", e.target.value)}
               placeholder="Nome do usuário"
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm text-zinc-900 outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/10 transition"
@@ -111,7 +120,9 @@ function ModalUsuario({
             <label className="text-sm font-medium text-zinc-700">E-mail *</label>
             <input
               type="email"
-              value={form.email}
+              name="modal-usuario-email"
+              autoComplete="email"
+              value={formNovoUsuario.email}
               onChange={(e) => handleChange("email", e.target.value)}
               placeholder="email@learly.com"
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm text-zinc-900 outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/10 transition"
@@ -124,7 +135,9 @@ function ModalUsuario({
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
-                  value={form.senha}
+                  name="modal-usuario-senha-nova"
+                  autoComplete="new-password"
+                  value={formNovoUsuario.senha}
                   onChange={(e) => handleChange("senha", e.target.value)}
                   placeholder="Senha forte (ex.: Senha123)"
                   className="h-10 w-full border border-zinc-300 rounded-lg pl-3 pr-10 text-sm text-zinc-900 outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/10 transition"
@@ -143,7 +156,9 @@ function ModalUsuario({
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-zinc-700">Perfil *</label>
             <select
-              value={form.perfilId}
+              name="modal-usuario-perfil"
+              autoComplete="off"
+              value={formNovoUsuario.perfilId}
               onChange={(e) => handleChange("perfilId", e.target.value)}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm text-zinc-900 outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/10 transition bg-white"
             >
@@ -159,7 +174,9 @@ function ModalUsuario({
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-zinc-700">Status *</label>
               <select
-                value={form.status}
+                name="modal-usuario-status"
+                autoComplete="off"
+                value={formNovoUsuario.status}
                 onChange={(e) => handleChange("status", e.target.value)}
                 className="h-10 border border-zinc-300 rounded-lg px-3 text-sm text-zinc-900 outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/10 transition bg-white"
               >
@@ -180,21 +197,22 @@ function ModalUsuario({
         {/* Footer */}
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200">
           <button
+            type="button"
             onClick={onClose}
             className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 rounded-lg hover:bg-zinc-50 transition-colors"
           >
             Cancelar
           </button>
           <button
+            type="submit"
             disabled={saving || perfis.length === 0}
-            onClick={() => void handleSubmit()}
             className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors disabled:opacity-60"
           >
             {saving ? "Salvando..." : isCreate ? "Criar usuario" : "Salvar alteracoes"}
           </button>
         </div>
 
-      </div>
+      </form>
     </div>
   );
 }
@@ -202,7 +220,8 @@ function ModalUsuario({
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<UsuarioMinhaEscola[]>([]);
   const [perfis, setPerfis] = useState<PerfilMinhaEscola[]>([]);
-  const [busca, setBusca] = useState("");
+  /** Filtro da tabela — isolado do formulário do modal (evita autofill do browser no campo errado). */
+  const [filtroBuscaTabela, setFiltroBuscaTabela] = useState("");
   const [filtroPerfil, setFiltroPerfil] = useState<string>("todos");
   const [filtroStatus, setFiltroStatus] = useState<StatusFiltro>("todos");
   const [modalAberto, setModalAberto] = useState(false);
@@ -236,7 +255,7 @@ export default function UsuariosPage() {
 
   const usuariosFiltrados = useMemo(() => {
     return usuarios.filter((u) => {
-      const buscaTexto = busca.trim().toLowerCase();
+      const buscaTexto = filtroBuscaTabela.trim().toLowerCase();
       const buscaOk =
         buscaTexto.length === 0 ||
         u.nomeCompleto.toLowerCase().includes(buscaTexto) ||
@@ -245,7 +264,7 @@ export default function UsuariosPage() {
       const statusOk = filtroStatus === "todos" || u.status === filtroStatus;
       return buscaOk && perfilOk && statusOk;
     });
-  }, [usuarios, busca, filtroPerfil, filtroStatus]);
+  }, [usuarios, filtroBuscaTabela, filtroPerfil, filtroStatus]);
 
   async function salvar(payload: {
     nomeCompleto: string;
@@ -296,6 +315,7 @@ export default function UsuariosPage() {
             <p className="text-sm text-zinc-500 mt-0.5">Gerencie os acessos ao sistema</p>
           </div>
           <button
+            type="button"
             onClick={() => {
               setModalError(null);
               setModalMode("create");
@@ -321,10 +341,15 @@ export default function UsuariosPage() {
         {/* Filtros */}
         <div className="flex flex-wrap gap-3">
           <input
-            type="text"
+            type="search"
+            name="filtro-busca-lista-usuarios-learly"
+            id="filtro-busca-lista-usuarios"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Buscar por nome ou e-mail..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
+            value={filtroBuscaTabela}
+            onChange={(e) => setFiltroBuscaTabela(e.target.value)}
             className="h-9 border border-zinc-300 rounded-lg px-3 text-sm text-zinc-900 outline-none focus:border-[#1F2A35] focus:ring-2 focus:ring-[#1F2A35]/10 transition w-72"
           />
           <select
@@ -443,12 +468,16 @@ export default function UsuariosPage() {
       {/* Modal */}
       {modalAberto && (
         <ModalUsuario
+          key={`${modalMode}-${usuarioSelecionado?.id ?? "novo"}`}
           mode={modalMode}
           perfis={perfis}
           usuario={usuarioSelecionado}
           saving={saving}
           errorMessage={modalError}
-          onClose={() => setModalAberto(false)}
+          onClose={() => {
+            setModalAberto(false);
+            setUsuarioSelecionado(null);
+          }}
           onCreate={salvar}
           onEdit={editar}
         />

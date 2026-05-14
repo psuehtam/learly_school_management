@@ -14,6 +14,8 @@ const PRIVATE_PREFIXES = [
   "/reposicoes",
   "/books",
   "/usuarios",
+  "/configuracoes",
+  "/horarios-funcionamento",
   "/professor",
   "/secretaria",
   "/comercial",

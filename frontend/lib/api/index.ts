@@ -14,3 +14,4 @@ export * from "./usuarios";
 export * from "./matriculas";
 
 export * from "./compromissos";
+export * from "./configuracoes";
