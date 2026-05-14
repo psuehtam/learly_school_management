@@ -26,7 +26,7 @@ function getApiBaseUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_URL;
   if (!raw) {
     throw new Error(
-      "NEXT_PUBLIC_API_URL nao configurada. Defina no .env.local (ex.: http://localhost:5081).",
+      "NEXT_PUBLIC_API_URL não configurada. Defina no .env.local (ex.: http://localhost:5081).",
     );
   }
   return raw.replace(/\/+$/, "");
@@ -125,15 +125,15 @@ export async function apiRequest<T>(
   if (response.status === 401 && !options.skipAuth) {
     clearToken();
     redirectToLogin();
-    throw new ApiError("Sessao expirada. Faca login novamente.", 401, data);
+    throw new ApiError("Sessão expirada. Faça login novamente.", 401, data);
   }
 
   if (!response.ok) {
     const message = resolveErrorMessage(
       data,
       response.status === 401
-        ? "Credenciais invalidas."
-        : "Falha ao processar requisicao.",
+        ? "Credenciais inválidas."
+        : "Falha ao processar requisição.",
     );
     throw new ApiError(message, response.status, data);
   }

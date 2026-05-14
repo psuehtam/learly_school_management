@@ -1154,7 +1154,8 @@ INSERT INTO perfil_permissoes_template (perfil_template_id, permissao_id)
 SELECT pt.id, p.id
 FROM perfis_template pt
 JOIN permissoes p ON p.nome IN (
-  'VISUALIZAR_AULA','VISUALIZAR_TURMA','VISUALIZAR_CALENDARIO','VISUALIZAR_COMPROMISSOS'
+  'VISUALIZAR_AULA','VISUALIZAR_TURMA','VISUALIZAR_CALENDARIO',
+  'VISUALIZAR_COMPROMISSOS','CRIAR_COMPROMISSO','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO'
 )
 WHERE pt.nome = 'Professor';
 
@@ -1163,7 +1164,8 @@ INSERT INTO perfil_permissoes_template (perfil_template_id, permissao_id)
 SELECT pt.id, p.id
 FROM perfis_template pt
 JOIN permissoes p ON p.nome IN (
-  'VISUALIZAR_PRE_ALUNO','CRIAR_PRE_ALUNO','VISUALIZAR_COMPROMISSOS','CRIAR_COMPROMISSO'
+  'VISUALIZAR_PRE_ALUNO','CRIAR_PRE_ALUNO','EDITAR_PRE_ALUNO','CANCELAR_PRE_ALUNO',
+  'VISUALIZAR_COMPROMISSOS','CRIAR_COMPROMISSO','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO'
 )
 WHERE pt.nome = 'Comercial';
 
@@ -1172,7 +1174,10 @@ INSERT INTO perfil_permissoes_template (perfil_template_id, permissao_id)
 SELECT pt.id, p.id
 FROM perfis_template pt
 JOIN permissoes p ON p.nome IN (
-  'VISUALIZAR_MATRICULA','CRIAR_MATRICULA','VISUALIZAR_ALUNO',
+  'VISUALIZAR_MATRICULA','CRIAR_MATRICULA','CANCELAR_MATRICULA','EDITAR_MATRICULA',
+  'APROVAR_MATRICULA','FINALIZAR_MATRICULA',
+  'VISUALIZAR_ALUNO','CRIAR_ALUNO',
+  'VISUALIZAR_PRE_ALUNO',
   'CRIAR_COMPROMISSO','VISUALIZAR_COMPROMISSOS','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO'
 )
 WHERE pt.nome = 'Secretaria';
@@ -1182,7 +1187,8 @@ INSERT INTO perfil_permissoes_template (perfil_template_id, permissao_id)
 SELECT pt.id, p.id
 FROM perfis_template pt
 JOIN permissoes p ON p.nome IN (
-  'VISUALIZAR_PARCELA','VISUALIZAR_MOVIMENTACAO_FINANCEIRA','VISUALIZAR_COMPROMISSOS'
+  'VISUALIZAR_PARCELA','VISUALIZAR_MOVIMENTACAO_FINANCEIRA',
+  'VISUALIZAR_COMPROMISSOS','CRIAR_COMPROMISSO'
 )
 WHERE pt.nome = 'Financeiro';
 
@@ -1212,12 +1218,12 @@ SELECT id, 'Super Admin', 'Acesso global do sistema', 'Ativo'
 FROM escolas
 WHERE codigo_escola = 'SYSTEM';
 
--- Permissões globais do superadmin
+-- Permissões globais do superadmin — recebe TODAS as permissões cadastradas
 INSERT INTO perfil_permissoes (perfil_id, permissao_id)
 SELECT p.id, perm.id
 FROM perfis p
 JOIN escolas e ON e.id = p.escola_id AND e.codigo_escola = 'SYSTEM'
-JOIN permissoes perm ON perm.nome IN ('GERENCIAR_ESCOLAS', 'VISUALIZAR_ESCOLAS')
+JOIN permissoes perm ON 1 = 1
 WHERE p.nome = 'Super Admin';
 
 -- Usuário de bootstrap

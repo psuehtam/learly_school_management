@@ -11,6 +11,9 @@ import {
   type Compromisso,
   type ParticipanteCompromisso,
 } from "@/lib/api";
+import { getCurrentUser } from "@/lib/api/auth";
+import { hasPermission } from "@/lib/permissions";
+import type { User } from "@/lib/api/types";
 
 type FormState = {
   titulo: string;
@@ -227,6 +230,10 @@ export default function CompromissosPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    void getCurrentUser().then(setUser).catch(() => setUser(null));
+  }, []);
 
   useEffect(() => {
     void carregar();
