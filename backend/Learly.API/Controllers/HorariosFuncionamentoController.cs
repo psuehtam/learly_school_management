@@ -23,7 +23,7 @@ public sealed class HorariosFuncionamentoController : ControllerBase
     }
 
     [HttpGet]
-    [RequirePermission("GERENCIAR_CONFIGURACOES_SISTEMA")]
+    [RequirePermission("VISUALIZAR_USUARIO", "GERENCIAR_CONFIGURACOES_SISTEMA")]
     public async Task<IActionResult> Listar(CancellationToken cancellationToken)
     {
         var resultado = await _service.ListarAsync(
@@ -32,8 +32,19 @@ public sealed class HorariosFuncionamentoController : ControllerBase
         return resultado.ToActionResult(this);
     }
 
+    /// <summary>Leitura da grade semanal para validar compromissos (perfis que agendam reunioes).</summary>
+    [HttpGet("consulta-compromissos")]
+    [RequirePermission("CRIAR_COMPROMISSO", "EDITAR_COMPROMISSO", "VISUALIZAR_COMPROMISSOS")]
+    public async Task<IActionResult> ListarParaConsultaCompromissos(CancellationToken cancellationToken)
+    {
+        var resultado = await _service.ListarAsync(
+            AppUserContextMapper.From(HttpContext.GetUserContext()),
+            cancellationToken);
+        return resultado.ToActionResult(this);
+    }
+
     [HttpPut]
-    [RequirePermission("GERENCIAR_CONFIGURACOES_SISTEMA")]
+    [RequirePermission("VISUALIZAR_USUARIO", "GERENCIAR_CONFIGURACOES_SISTEMA")]
     public async Task<IActionResult> Atualizar(
         [FromBody] AtualizarHorariosEscolaRequest body,
         CancellationToken cancellationToken)
