@@ -165,6 +165,13 @@ export default function CompromissosPage() {
   const [cancelarId, setCancelarId] = useState<number | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
   const [abaLista, setAbaLista] = useState<AbaLista>("pendente");
+  const [user, setUser] = useState<User | null>(null);
+  const [authPronto, setAuthPronto] = useState(false);
+
+  const permiteCriar = Boolean(user && hasPermission(user, "CRIAR_COMPROMISSO"));
+  const permiteEditar = Boolean(user && hasPermission(user, "EDITAR_COMPROMISSO"));
+  const permiteExcluir = Boolean(user && hasPermission(user, "EXCLUIR_COMPROMISSO"));
+  const podeUsarFormulario = !authPronto || permiteCriar || permiteEditar;
 
   const compromissosOrdenados = useMemo(
     () =>
@@ -232,7 +239,10 @@ export default function CompromissosPage() {
   }
 
   useEffect(() => {
-    void getCurrentUser().then(setUser).catch(() => setUser(null));
+    void getCurrentUser()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setAuthPronto(true));
   }, []);
 
   useEffect(() => {
@@ -292,6 +302,15 @@ export default function CompromissosPage() {
         return;
       }
 
+      if (editingId && !permiteEditar) {
+        setError("Voce nao tem permissao para editar compromissos.");
+        return;
+      }
+      if (!editingId && !permiteCriar) {
+        setError("Voce nao tem permissao para criar compromissos.");
+        return;
+      }
+
       const dataInicio = `${form.data}T${form.horaInicio}:00`;
       const dataFim = `${form.data}T${form.horaFim}:00`;
       if (new Date(dataFim).getTime() <= new Date(dataInicio).getTime()) {
@@ -341,6 +360,10 @@ export default function CompromissosPage() {
 
   async function confirmarCancelamento() {
     if (!cancelarId) return;
+    if (!permiteExcluir) {
+      setError("Voce nao tem permissao para cancelar compromissos.");
+      return;
+    }
     if (!motivoCancelamento.trim()) {
       setError("Informe o motivo para cancelar o compromisso.");
       return;
@@ -366,6 +389,10 @@ export default function CompromissosPage() {
 
   async function confirmarConclusao() {
     if (!confirmarConcluirId) return;
+    if (!permiteEditar) {
+      setError("Voce nao tem permissao para concluir compromissos.");
+      return;
+    }
 
     try {
       await editarCompromisso(confirmarConcluirId, { status: "Concluido" });
@@ -435,17 +462,29 @@ export default function CompromissosPage() {
         <div className="mb-5 flex flex-col gap-1 border-b border-zinc-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">
-              {editingId ? "Editar compromisso" : "Novo compromisso"}
+              {!podeUsarFormulario
+                ? "Consulta de compromissos"
+                : editingId
+                  ? "Editar compromisso"
+                  : "Novo compromisso"}
             </h2>
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Reunião · prioridade média (padrão do sistema)
+              {!podeUsarFormulario
+                ? "Somente leitura conforme seu perfil"
+                : "Reunião · prioridade média (padrão do sistema)"}
             </p>
           </div>
-          {editingId ? (
+          {editingId && podeUsarFormulario ? (
             <span className="text-xs font-semibold text-amber-800">Edição #{editingId}</span>
           ) : null}
         </div>
 
+        {!podeUsarFormulario ? (
+          <p className="text-sm leading-relaxed text-zinc-600">
+            Seu perfil pode apenas visualizar compromissos. Criar, editar ou cancelar exige permissões específicas no
+            sistema.
+          </p>
+        ) : (
         <form onSubmit={onSubmit} className="flex flex-col gap-5">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="sm:col-span-2 lg:col-span-3">
@@ -563,7 +602,11 @@ export default function CompromissosPage() {
           <div className="flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-4">
             <button
               type="submit"
-              disabled={saving}
+              disabled={
+                saving ||
+                (!editingId && !permiteCriar) ||
+                (Boolean(editingId) && !permiteEditar)
+              }
               className="h-11 min-w-[160px] rounded-xl bg-[#1F2A35] px-5 text-sm font-semibold text-white shadow-md shadow-zinc-900/10 transition hover:bg-[#2a3847] disabled:opacity-50"
             >
               {saving ? "Salvando…" : editingId ? "Salvar alterações" : "Criar compromisso"}
@@ -579,6 +622,7 @@ export default function CompromissosPage() {
             ) : null}
           </div>
         </form>
+        )}
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm shadow-zinc-200/40">
@@ -645,6 +689,7 @@ export default function CompromissosPage() {
                 const participantesStr = nomesParticipantes(c.participantesUsuarioIds, participantesDisponiveis);
                 const motivoRegistrado = c.status === "Cancelado" ? extrairMotivoCancelamento(c.descricao) : null;
                 const mostrarAcoes = c.status !== "Concluido" && c.status !== "Cancelado";
+                const mostrarColunaAcoes = mostrarAcoes && (permiteEditar || permiteExcluir);
 
                 return (
                   <li
@@ -689,9 +734,9 @@ export default function CompromissosPage() {
                         ) : null}
                       </div>
 
-                      {mostrarAcoes ? (
+                      {mostrarColunaAcoes ? (
                         <div className="flex shrink-0 flex-col gap-2 sm:w-44">
-                          {podeConcluir(c) && (
+                          {podeConcluir(c) && permiteEditar && (
                             <button
                               type="button"
                               onClick={() => onConcluir(c.id)}
@@ -700,6 +745,7 @@ export default function CompromissosPage() {
                               Concluir reunião
                             </button>
                           )}
+                          {permiteEditar ? (
                           <button
                             type="button"
                             onClick={() => preencherFormularioParaEdicao(c)}
@@ -707,6 +753,8 @@ export default function CompromissosPage() {
                           >
                             Editar
                           </button>
+                          ) : null}
+                          {permiteExcluir ? (
                           <button
                             type="button"
                             onClick={() => onCancelar(c.id)}
@@ -714,6 +762,7 @@ export default function CompromissosPage() {
                           >
                             Cancelar
                           </button>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
