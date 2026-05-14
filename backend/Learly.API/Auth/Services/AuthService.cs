@@ -28,20 +28,20 @@ public sealed class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Senha))
         {
-            return AuthResult.Fail("Email e senha sao obrigatorios.");
+            return AuthResult.Fail("Usuário (ou e-mail) e senha são obrigatórios.");
         }
 
         var loginContext = await _authRepository.GetLoginContextAsync(request.Email, request.CodigoEscola);
         if (loginContext is null)
         {
-            return AuthResult.Fail("Credenciais invalidas.");
+            return AuthResult.Fail("Credenciais inválidas.");
         }
 
         var usuario = loginContext.Usuario;
         var isBcryptHash = usuario.Senha.StartsWith("$2", StringComparison.Ordinal);
         if (!isBcryptHash && !_environment.IsDevelopment())
         {
-            return AuthResult.Fail("Credenciais invalidas.");
+            return AuthResult.Fail("Credenciais inválidas.");
         }
 
         var senhaValida = isBcryptHash
@@ -50,7 +50,7 @@ public sealed class AuthService : IAuthService
 
         if (!senhaValida)
         {
-            return AuthResult.Fail("Credenciais invalidas.");
+            return AuthResult.Fail("Credenciais inválidas.");
         }
 
         // Migra senha legada para hash BCrypt quando necessário.

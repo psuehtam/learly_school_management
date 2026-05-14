@@ -11,6 +11,9 @@ import {
   type Compromisso,
   type ParticipanteCompromisso,
 } from "@/lib/api";
+import { getCurrentUser } from "@/lib/api/auth";
+import { hasPermission } from "@/lib/permissions";
+import type { User } from "@/lib/api/types";
 
 type FormState = {
   titulo: string;
@@ -40,6 +43,7 @@ function formatDateLocal(date: Date): string {
 }
 
 export default function CompromissosPage() {
+  const [user, setUser] = useState<User | null>(null);
   const [compromissos, setCompromissos] = useState<Compromisso[]>([]);
   const [form, setForm] = useState<FormState>(initialForm);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -50,6 +54,10 @@ export default function CompromissosPage() {
   const [confirmarConcluirId, setConfirmarConcluirId] = useState<number | null>(null);
   const [cancelarId, setCancelarId] = useState<number | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
+
+  const podeCriar = user ? hasPermission(user, "CRIAR_COMPROMISSO") : false;
+  const podeEditar = user ? hasPermission(user, "EDITAR_COMPROMISSO") : false;
+  const podeCancelarCompromisso = user ? hasPermission(user, "EXCLUIR_COMPROMISSO") : false;
 
   const compromissosOrdenados = useMemo(
     () =>
@@ -90,6 +98,10 @@ export default function CompromissosPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    void getCurrentUser().then(setUser).catch(() => setUser(null));
+  }, []);
 
   useEffect(() => {
     void carregar();
@@ -262,6 +274,7 @@ export default function CompromissosPage() {
         </div>
       )}
 
+      {(podeCriar || (podeEditar && editingId !== null)) && (
       <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-xl border border-zinc-200 bg-white p-4">
         <input
           className="h-10 rounded-lg border border-zinc-300 px-3 text-sm"
@@ -346,6 +359,7 @@ export default function CompromissosPage() {
           </button>
         )}
       </form>
+      )}
 
       <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
         <div className="px-4 py-3 border-b border-zinc-100 text-sm font-semibold text-zinc-700">
@@ -374,7 +388,7 @@ export default function CompromissosPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {podeConcluir(c) && (
+                      {podeConcluir(c) && podeEditar && (
                         <button
                           onClick={() => onConcluir(c.id)}
                           className="h-8 px-3 rounded border border-emerald-300 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
@@ -382,18 +396,22 @@ export default function CompromissosPage() {
                           Concluir reuniao
                         </button>
                       )}
-                      <button
-                      onClick={() => preencherFormularioParaEdicao(c)}
-                        className="h-8 px-3 rounded border border-zinc-300 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => onCancelar(c.id)}
-                        className="h-8 px-3 rounded border border-zinc-300 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-                      >
-                        Cancelar
-                      </button>
+                      {podeEditar && (
+                        <button
+                          onClick={() => preencherFormularioParaEdicao(c)}
+                          className="h-8 px-3 rounded border border-zinc-300 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                        >
+                          Editar
+                        </button>
+                      )}
+                      {podeCancelarCompromisso && (
+                        <button
+                          onClick={() => onCancelar(c.id)}
+                          className="h-8 px-3 rounded border border-zinc-300 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                        >
+                          Cancelar
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))

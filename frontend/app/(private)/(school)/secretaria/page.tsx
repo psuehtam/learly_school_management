@@ -234,6 +234,15 @@ export default function SecretariaPage() {
   const podeAprovarPreAluno =
     usuarioSessao !== null && hasPermission(usuarioSessao, "APROVAR_MATRICULA");
 
+  const podeCriarAluno =
+    usuarioSessao !== null && hasPermission(usuarioSessao, "CRIAR_ALUNO");
+
+  const podeEnturmar =
+    usuarioSessao !== null && hasPermission(usuarioSessao, "EDITAR_MATRICULA");
+
+  const podeCancelarMatricula =
+    usuarioSessao !== null && hasPermission(usuarioSessao, "CANCELAR_MATRICULA");
+
   const statusSelecionado = STATUS_ABAS.find((s) => s.id === aba)?.status;
   const idadeAluno = calcularIdade(novoAlunoForm.dataNascimento);
   const alunoMenor = idadeAluno !== null && idadeAluno < 18;
@@ -542,7 +551,9 @@ export default function SecretariaPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={carregarMatriculas} isLoading={isLoading}>Atualizar</Button>
-          <Button onClick={abrirModalNovoAluno}>Novo Aluno</Button>
+          {podeCriarAluno && (
+            <Button onClick={abrirModalNovoAluno}>Novo Aluno</Button>
+          )}
         </div>
       </div>
 
@@ -702,22 +713,26 @@ export default function SecretariaPage() {
                       </td>
                       <td className="align-top px-4 py-3">
                         <div className="flex flex-wrap justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => {
-                              const ini = m.turmaId ? String(m.turmaId) : "";
-                              setTurmaIdEnturmarInicial(ini);
-                              setMatriculaParaEnturmar(m);
-                              setTurmaIdEnturmar(ini);
-                            }}
-                            disabled={m.status !== "Em Espera"}
-                          >
-                            Enturmar
-                          </Button>
-                          <Button size="sm" variant="danger" onClick={() => void onCancelarMatricula(m)} disabled={m.status === "Cancelado"}>
-                            Cancelar
-                          </Button>
+                          {podeEnturmar && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                const ini = m.turmaId ? String(m.turmaId) : "";
+                                setTurmaIdEnturmarInicial(ini);
+                                setMatriculaParaEnturmar(m);
+                                setTurmaIdEnturmar(ini);
+                              }}
+                              disabled={m.status !== "Em Espera"}
+                            >
+                              Enturmar
+                            </Button>
+                          )}
+                          {podeCancelarMatricula && (
+                            <Button size="sm" variant="danger" onClick={() => void onCancelarMatricula(m)} disabled={m.status === "Cancelado"}>
+                              Cancelar
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>

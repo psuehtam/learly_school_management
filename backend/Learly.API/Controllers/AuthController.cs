@@ -27,8 +27,8 @@ public sealed class AuthController : ControllerBase
         {
             return Unauthorized(new ProblemDetails
             {
-                Title = "Nao autorizado",
-                Detail = result.Error ?? "Credenciais invalidas.",
+                Title = "Não autorizado",
+                Detail = result.Error ?? "Credenciais inválidas.",
                 Status = StatusCodes.Status401Unauthorized
             });
         }
