@@ -11,6 +11,7 @@ import {
   IconDollar,
   IconSettings,
   IconBuilding,
+  IconSliders,
 } from "@/components/icons";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -57,8 +58,8 @@ export const SCHOOL_MENU: MenuEntry[] = [
     items: [
       {
         type: "item",
-        key: "comercial-crm",
-        label: "CRM / Leads",
+        key: "comercial-pre-alunos",
+        label: "Pré-alunos",
         href: "/comercial",
         icon: <IconTrendingUp />,
         permission: "VISUALIZAR_PRE_ALUNO",
@@ -143,6 +144,14 @@ export const SCHOOL_MENU: MenuEntry[] = [
         icon: <IconCalendar />,
         permission: "VISUALIZAR_CALENDARIO",
       },
+      {
+        type: "item",
+        key: "compromissos",
+        label: "Compromissos",
+        href: "/compromissos",
+        icon: <IconClock />,
+        permission: "VISUALIZAR_COMPROMISSOS",
+      },
     ],
   },
 
@@ -175,6 +184,14 @@ export const SCHOOL_MENU: MenuEntry[] = [
         icon: <IconSettings />,
         permission: "VISUALIZAR_USUARIO",
       },
+      {
+        type: "item",
+        key: "configuracoes",
+        label: "Configurações",
+        href: "/configuracoes",
+        icon: <IconSliders />,
+        permission: "GERENCIAR_CONFIGURACOES_SISTEMA",
+      },
     ],
   },
 ];
@@ -188,6 +205,14 @@ export const SUPER_ADMIN_MENU: MenuEntry[] = [
     label: "Escolas",
     href: "/super-admin/escolas",
     icon: <IconBuilding />,
+    permission: "VISUALIZAR_ESCOLAS",
+  },
+  {
+    type: "item",
+    key: "templates-permissoes",
+    label: "Templates de permissões",
+    href: "/super-admin/templates",
+    icon: <IconSettings />,
     permission: "VISUALIZAR_ESCOLAS",
   },
 ];

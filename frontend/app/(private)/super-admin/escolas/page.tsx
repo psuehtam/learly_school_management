@@ -1,72 +1,75 @@
 "use client";
 
-import { useState } from "react";
-
-type StatusEscola = "Ativo" | "Inativo";
-
-interface Escola {
-  id: number;
-  codigo: string;
-  nomeFantasia: string;
-  razaoSocial: string;
-  cnpj: string;
-  status: StatusEscola;
-  criadoEm: string;
-}
-
-const escolasIniciais: Escola[] = [
-  {
-    id: 1,
-    codigo: "ESCOLA-TESTE-01",
-    nomeFantasia: "Escola Teste 01",
-    razaoSocial: "Escola Teste 01 LTDA",
-    cnpj: "00.000.000/0001-00",
-    status: "Ativo",
-    criadoEm: "27/03/2026",
-  },
-  {
-    id: 2,
-    codigo: "CWB-IDIOM",
-    nomeFantasia: "CWB Idiomas",
-    razaoSocial: "CWB Idiomas EIRELI",
-    cnpj: "12.345.678/0001-90",
-    status: "Ativo",
-    criadoEm: "15/01/2026",
-  },
-  {
-    id: 3,
-    codigo: "DEMO-SCHOOL",
-    nomeFantasia: "Escola Demo (inativa)",
-    razaoSocial: "Demo LTDA",
-    cnpj: "98.765.432/0001-10",
-    status: "Inativo",
-    criadoEm: "01/12/2025",
-  },
-];
+import { useEffect, useState } from "react";
+import { getApiErrorMessage } from "@/lib/api/client";
+import { criarEscola, listarEscolas, type Escola } from "@/lib/api/escolas";
+import { applyBrazilMask, digitsOnly, isValidCNPJ } from "@/utils";
 
 function ModalNovaEscola({
   onClose,
   onSave,
 }: {
   onClose: () => void;
-  onSave: (d: Omit<Escola, "id" | "criadoEm">) => void;
+  onSave: (d: {
+    codigoEscola: string;
+    nomeFantasia: string;
+    razaoSocial?: string;
+    cnpj?: string;
+    adminNomeCompleto?: string;
+    adminEmail: string;
+    adminPassword: string;
+  }) => Promise<void>;
 }) {
-  const [codigo, setCodigo] = useState("");
+  const [codigoEscola, setCodigoEscola] = useState("");
   const [nomeFantasia, setNomeFantasia] = useState("");
   const [razaoSocial, setRazaoSocial] = useState("");
   const [cnpj, setCnpj] = useState("");
+  const [adminNomeCompleto, setAdminNomeCompleto] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [erro, setErro] = useState("");
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!codigo.trim() || !nomeFantasia.trim()) return;
-    onSave({
-      codigo: codigo.trim().toUpperCase(),
-      nomeFantasia: nomeFantasia.trim(),
-      razaoSocial: razaoSocial.trim() || nomeFantasia.trim(),
-      cnpj: cnpj.trim() || "—",
-      status: "Ativo",
-    });
-    onClose();
+    if (
+      !codigoEscola.trim() ||
+      !nomeFantasia.trim() ||
+      !razaoSocial.trim() ||
+      !adminNomeCompleto.trim() ||
+      !adminEmail.trim() ||
+      !adminPassword.trim()
+    ) {
+      setErro("Preencha todos os campos.");
+      return;
+    }
+    const cnpjDigits = digitsOnly(cnpj);
+    if (cnpjDigits.length !== 14) {
+      setErro("Informe o CNPJ completo.");
+      return;
+    }
+    if (!isValidCNPJ(cnpj)) {
+      setErro("CNPJ inválido.");
+      return;
+    }
+    setSubmitting(true);
+    setErro("");
+    try {
+      await onSave({
+        codigoEscola: codigoEscola.trim().toUpperCase(),
+        nomeFantasia: nomeFantasia.trim(),
+        razaoSocial: razaoSocial.trim(),
+        cnpj: cnpjDigits,
+        adminNomeCompleto: adminNomeCompleto.trim(),
+        adminEmail: adminEmail.trim().toLowerCase(),
+        adminPassword,
+      });
+      onClose();
+    } catch (e) {
+      setErro(getApiErrorMessage(e, "Nao foi possivel criar a escola."));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -93,10 +96,9 @@ function ModalNovaEscola({
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-zinc-700">Código da escola *</label>
             <input
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+              value={codigoEscola}
+              onChange={(e) => setCodigoEscola(e.target.value.toUpperCase())}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm uppercase"
-              placeholder="Ex: MINHA-ESCOLA"
               required
             />
           </div>
@@ -110,22 +112,67 @@ function ModalNovaEscola({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Razão social</label>
+            <label className="text-sm font-medium text-zinc-700">Razão social *</label>
             <input
               value={razaoSocial}
               onChange={(e) => setRazaoSocial(e.target.value)}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
+              required
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">CNPJ</label>
+            <label className="text-sm font-medium text-zinc-700">CNPJ *</label>
             <input
               value={cnpj}
-              onChange={(e) => setCnpj(e.target.value)}
+              onChange={(e) => setCnpj(applyBrazilMask("cnpj", e.target.value))}
               className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
-              placeholder="Opcional"
+              inputMode="numeric"
+              autoComplete="off"
+              required
             />
           </div>
+          <div className="pt-2 border-t border-zinc-100">
+            <h3 className="text-sm font-semibold text-zinc-800">Administrador da escola</h3>
+            <p className="text-xs text-zinc-500 mt-1">
+              Esse usuario sera criado automaticamente e podera fazer login com o codigo da escola.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-zinc-700">Nome completo do admin *</label>
+            <input
+              value={adminNomeCompleto}
+              onChange={(e) => setAdminNomeCompleto(e.target.value)}
+              className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
+              required
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-zinc-700">Email do admin *</label>
+            <input
+              type="email"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+              className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
+              required
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-zinc-700">Senha do admin *</label>
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              className="h-10 border border-zinc-300 rounded-lg px-3 text-sm"
+              required
+              minLength={8}
+            />
+            <p className="text-xs text-zinc-500">
+              Mínimo 8 caracteres, com letra maiúscula, minúscula e número.
+            </p>
+          </div>
+          {erro && (
+            <p className="text-xs text-red-600">{erro}</p>
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
@@ -136,9 +183,10 @@ function ModalNovaEscola({
             </button>
             <button
               type="submit"
+              disabled={submitting}
               className="h-9 px-4 text-sm font-medium text-white bg-[#0f172a] rounded-lg hover:bg-[#1e293b]"
             >
-              Cadastrar
+              {submitting ? "Salvando..." : "Cadastrar"}
             </button>
           </div>
         </form>
@@ -148,57 +196,112 @@ function ModalNovaEscola({
 }
 
 export default function SuperAdminEscolasPage() {
-  const [escolas, setEscolas] = useState<Escola[]>(escolasIniciais);
+  const [escolas, setEscolas] = useState<Escola[]>([]);
   const [modalNova, setModalNova] = useState(false);
   const [filtro, setFiltro] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function carregar() {
+      try {
+        setLoading(true);
+        setErro("");
+        const data = await listarEscolas();
+        if (!cancelled) setEscolas(data);
+      } catch (e) {
+        if (!cancelled) setErro(getApiErrorMessage(e, "Falha ao carregar escolas."));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void carregar();
+    return () => { cancelled = true; };
+  }, []);
 
   const filtradas = escolas.filter(
     (e) =>
-      e.codigo.toLowerCase().includes(filtro.toLowerCase()) ||
+      e.codigoEscola.toLowerCase().includes(filtro.toLowerCase()) ||
       e.nomeFantasia.toLowerCase().includes(filtro.toLowerCase())
   );
+  const totalAtivas = escolas.filter((escola) => escola.status === "Ativo").length;
+  const totalInativas = escolas.length - totalAtivas;
 
-  function alternarStatus(id: number) {
-    setEscolas((prev) =>
-      prev.map((e) =>
-        e.id === id ? { ...e, status: e.status === "Ativo" ? "Inativo" : "Ativo" } : e
-      )
-    );
-  }
-
-  function adicionarEscola(d: Omit<Escola, "id" | "criadoEm">) {
-    const novo: Escola = {
-      ...d,
-      id: Math.max(0, ...escolas.map((e) => e.id)) + 1,
-      criadoEm: new Date().toLocaleDateString("pt-BR"),
-    };
-    setEscolas((prev) => [novo, ...prev]);
+  async function adicionarEscola(d: {
+    codigoEscola: string;
+    nomeFantasia: string;
+    razaoSocial?: string;
+    cnpj?: string;
+    adminNomeCompleto?: string;
+    adminEmail: string;
+    adminPassword: string;
+  }) {
+    const nova = await criarEscola(d);
+    setEscolas((prev) => [nova, ...prev]);
   }
 
   return (
-    <div className="max-w-5xl mx-auto flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-zinc-900">Escolas cadastradas</h1>
-        <p className="text-sm text-zinc-500 mt-1">
-          Cadastre escolas (tenants), defina o código de login e inative sem apagar o registro.
-        </p>
+    <div className="max-w-6xl mx-auto flex flex-col gap-6">
+      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-slate-50 to-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-700">
+              Painel Super Admin
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold text-zinc-900">Escolas cadastradas</h1>
+            <p className="text-sm text-zinc-600 mt-1 max-w-2xl">
+              Cadastre escolas (tenants), defina o código de login e acompanhe rapidamente o status de cada unidade.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setModalNova(true)}
+            className="h-10 px-4 text-sm font-medium text-white bg-[#0f172a] rounded-lg hover:bg-[#1e293b] transition-colors shrink-0"
+          >
+            Nova escola
+          </button>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-zinc-200/80 bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">Total</p>
+            <p className="mt-1 text-xl font-semibold text-zinc-900">{escolas.length}</p>
+          </div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-emerald-700">Ativas</p>
+            <p className="mt-1 text-xl font-semibold text-emerald-800">{totalAtivas}</p>
+          </div>
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">Inativas</p>
+            <p className="mt-1 text-xl font-semibold text-zinc-700">{totalInativas}</p>
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <input
-          type="search"
-          value={filtro}
-          onChange={(e) => setFiltro(e.target.value)}
-          placeholder="Buscar por código ou nome..."
-          className="h-10 max-w-sm w-full border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#0f172a] focus:ring-2 focus:ring-[#0f172a]/15"
-        />
-        <button
-          type="button"
-          onClick={() => setModalNova(true)}
-          className="h-10 px-4 text-sm font-medium text-white bg-[#0f172a] rounded-lg hover:bg-[#1e293b] transition-colors shrink-0"
-        >
-          Nova escola
-        </button>
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+        <div className="relative max-w-md">
+          <input
+            type="search"
+            value={filtro}
+            onChange={(e) => setFiltro(e.target.value)}
+            placeholder="Buscar por código ou nome da escola..."
+            aria-label="Buscar por código ou nome"
+            className="h-10 w-full border border-zinc-300 rounded-lg pl-9 pr-3 text-sm outline-none focus:border-[#0f172a] focus:ring-2 focus:ring-[#0f172a]/15"
+          />
+          <svg
+            aria-hidden="true"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <line x1="16.65" y1="16.65" x2="21" y2="21" />
+          </svg>
+        </div>
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
@@ -224,21 +327,36 @@ export default function SuperAdminEscolasPage() {
               </tr>
             </thead>
             <tbody>
-              {filtradas.length === 0 ? (
+              {loading ? (
                 <tr>
                   <td colSpan={5} className="px-5 py-12 text-center text-zinc-400">
-                    Nenhuma escola encontrada.
+                    Carregando escolas...
+                  </td>
+                </tr>
+              ) : erro ? (
+                <tr>
+                  <td colSpan={5} className="px-5 py-12 text-center text-red-500">
+                    {erro}
+                  </td>
+                </tr>
+              ) : filtradas.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-5 py-12 text-center">
+                    <p className="text-zinc-500 font-medium">Nenhuma escola encontrada.</p>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Tente ajustar o filtro ou cadastre uma nova escola.
+                    </p>
                   </td>
                 </tr>
               ) : (
                 filtradas.map((e) => (
-                  <tr key={e.id} className="border-b border-zinc-100 hover:bg-zinc-50/80">
-                    <td className="px-5 py-3 font-mono text-xs text-zinc-800">{e.codigo}</td>
+                  <tr key={e.id} className="border-b border-zinc-100 hover:bg-zinc-50/80 transition-colors">
+                    <td className="px-5 py-3 font-mono text-xs text-zinc-800">{e.codigoEscola}</td>
                     <td className="px-5 py-3">
                       <span className="font-medium text-zinc-900">{e.nomeFantasia}</span>
-                      <p className="text-xs text-zinc-400 mt-0.5 md:hidden">{e.cnpj}</p>
+                      <p className="text-xs text-zinc-400 mt-0.5 md:hidden">ID {e.id}</p>
                     </td>
-                    <td className="px-5 py-3 text-zinc-600 hidden md:table-cell">{e.cnpj}</td>
+                    <td className="px-5 py-3 text-zinc-600 hidden md:table-cell">ID {e.id}</td>
                     <td className="px-5 py-3">
                       <span
                         className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
@@ -250,19 +368,7 @@ export default function SuperAdminEscolasPage() {
                         {e.status}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => alternarStatus(e.id)}
-                        className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-                          e.status === "Ativo"
-                            ? "border-amber-200 text-amber-800 hover:bg-amber-50"
-                            : "border-emerald-200 text-emerald-800 hover:bg-emerald-50"
-                        }`}
-                      >
-                        {e.status === "Ativo" ? "Inativar" : "Ativar"}
-                      </button>
-                    </td>
+                    <td className="px-5 py-3 text-right text-xs text-zinc-500">Em breve</td>
                   </tr>
                 ))
               )}
@@ -272,7 +378,7 @@ export default function SuperAdminEscolasPage() {
       </div>
 
       <p className="text-xs text-zinc-400">
-        Dados de demonstração — conecte a API de escolas (`GERENCIAR_ESCOLAS` / Super Admin) quando o backend estiver pronto.
+        Lista alimentada pela API (`GET /api/escolas`). Criacao usa `POST /api/escolas`.
       </p>
 
       {modalNova && (

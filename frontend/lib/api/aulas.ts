@@ -1,6 +1,8 @@
 import { apiRequest } from "@/lib/api/client";
 import type { Aula, Presenca, Homework, Avaliacao } from "@/types/aula";
 
+export type { Aula, Presenca, Homework, Avaliacao } from "@/types/aula";
+
 export async function listarAulas(filtros?: Record<string, string>): Promise<Aula[]> {
   const params = filtros ? `?${new URLSearchParams(filtros)}` : "";
   return apiRequest<Aula[]>(`/api/aulas${params}`);

@@ -1,4 +1,4 @@
-import { clearToken, getToken } from "@/lib/auth";
+import { clearToken } from "@/lib/auth";
 import type { ApiErrorPayload } from "@/lib/api/types";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -26,7 +26,7 @@ function getApiBaseUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_URL;
   if (!raw) {
     throw new Error(
-      "NEXT_PUBLIC_API_URL nao configurada. Defina no .env.local (ex.: http://localhost:5081).",
+      "NEXT_PUBLIC_API_URL não configurada. Defina no .env.local (ex.: http://localhost:5081).",
     );
   }
   return raw.replace(/\/+$/, "");
@@ -53,6 +53,7 @@ function resolveErrorMessage(data: unknown, fallback: string): string {
   const payload = data as ApiErrorPayload;
   return (
     payload.message ||
+    payload.mensagem ||
     payload.error ||
     payload.title ||
     payload.detail ||
@@ -61,9 +62,17 @@ function resolveErrorMessage(data: unknown, fallback: string): string {
 }
 
 async function parseResponseBody(response: Response): Promise<unknown> {
+  if (response.status === 204 || response.status === 205) {
+    return null;
+  }
+
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
-    return response.json();
+    const text = await response.text();
+    if (!text.trim()) {
+      return null;
+    }
+    return JSON.parse(text) as unknown;
   }
 
   const text = await response.text();
@@ -98,13 +107,6 @@ export async function apiRequest<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  if (!options.skipAuth) {
-    const token = getToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-  }
-
   const body =
     options.body == null || isFormData || typeof options.body === "string"
       ? (options.body as BodyInit | undefined)
@@ -114,6 +116,7 @@ export async function apiRequest<T>(
     method: options.method ?? "GET",
     headers,
     body,
+    credentials: "include",
   });
 
   const data = await parseResponseBody(response);
@@ -122,15 +125,15 @@ export async function apiRequest<T>(
   if (response.status === 401 && !options.skipAuth) {
     clearToken();
     redirectToLogin();
-    throw new ApiError("Sessao expirada. Faca login novamente.", 401, data);
+    throw new ApiError("Sessão expirada. Faça login novamente.", 401, data);
   }
 
   if (!response.ok) {
     const message = resolveErrorMessage(
       data,
       response.status === 401
-        ? "Credenciais invalidas."
-        : "Falha ao processar requisicao.",
+        ? "Credenciais inválidas."
+        : "Falha ao processar requisição.",
     );
     throw new ApiError(message, response.status, data);
   }

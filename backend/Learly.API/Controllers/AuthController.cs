@@ -1,5 +1,6 @@
 using Learly.API.Auth;
 using Learly.API.Auth.Services;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Learly.API.Controllers;
@@ -9,21 +10,69 @@ namespace Learly.API.Controllers;
 public sealed class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IWebHostEnvironment _environment;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IWebHostEnvironment environment)
     {
         _authService = authService;
+        _environment = environment;
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
     {
         var result = await _authService.LoginAsync(request);
-        if (!result.Success)
+        if (!result.Success || result.Data is null || string.IsNullOrWhiteSpace(result.AccessToken))
         {
-            return Unauthorized(new { message = result.Error });
+            return Unauthorized(new ProblemDetails
+            {
+                Title = "Não autorizado",
+                Detail = result.Error ?? "Credenciais inválidas.",
+                Status = StatusCodes.Status401Unauthorized
+            });
         }
 
+        var secure = !_environment.IsDevelopment() || Request.IsHttps;
+        var expires = result.Data.ExpiraEmUtc;
+
+        Response.Cookies.Append(AuthConstants.AccessTokenCookieName, result.AccessToken, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = secure,
+            SameSite = SameSiteMode.Lax,
+            Path = "/",
+            Expires = expires
+        });
+
+        Response.Cookies.Append("auth_session", "1", new CookieOptions
+        {
+            HttpOnly = false,
+            Secure = secure,
+            SameSite = SameSiteMode.Lax,
+            Path = "/",
+            Expires = expires
+        });
+
         return Ok(result.Data);
+    }
+
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        var secureLogout = Request.IsHttps;
+        Response.Cookies.Delete(AuthConstants.AccessTokenCookieName, new CookieOptions
+        {
+            Path = "/",
+            Secure = secureLogout,
+            SameSite = SameSiteMode.Lax
+        });
+        Response.Cookies.Delete("auth_session", new CookieOptions
+        {
+            Path = "/",
+            Secure = secureLogout,
+            SameSite = SameSiteMode.Lax
+        });
+        return NoContent();
     }
 }

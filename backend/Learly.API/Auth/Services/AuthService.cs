@@ -12,44 +12,66 @@ public sealed class AuthService : IAuthService
 {
     private readonly IAuthRepository _authRepository;
     private readonly IJwtTokenService _jwtTokenService;
+    private readonly IWebHostEnvironment _environment;
 
-    public AuthService(IAuthRepository authRepository, IJwtTokenService jwtTokenService)
+    public AuthService(
+        IAuthRepository authRepository,
+        IJwtTokenService jwtTokenService,
+        IWebHostEnvironment environment)
     {
         _authRepository = authRepository;
         _jwtTokenService = jwtTokenService;
+        _environment = environment;
     }
 
     public async Task<AuthResult> LoginAsync(LoginRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Senha))
         {
-            return AuthResult.Fail("Email e senha sao obrigatorios.");
+            return AuthResult.Fail("Usuário (ou e-mail) e senha são obrigatórios.");
         }
 
         var loginContext = await _authRepository.GetLoginContextAsync(request.Email, request.CodigoEscola);
         if (loginContext is null)
         {
-            return AuthResult.Fail("Credenciais invalidas.");
+            return AuthResult.Fail("Credenciais inválidas.");
         }
 
         var usuario = loginContext.Usuario;
-        var senhaValida = usuario.Senha.StartsWith("$2", StringComparison.Ordinal)
+        var isBcryptHash = usuario.Senha.StartsWith("$2", StringComparison.Ordinal);
+        if (!isBcryptHash && !_environment.IsDevelopment())
+        {
+            return AuthResult.Fail("Credenciais inválidas.");
+        }
+
+        var senhaValida = isBcryptHash
             ? BCrypt.Net.BCrypt.Verify(request.Senha, usuario.Senha)
             : usuario.Senha == request.Senha;
 
         if (!senhaValida)
         {
-            return AuthResult.Fail("Credenciais invalidas.");
+            return AuthResult.Fail("Credenciais inválidas.");
         }
 
         // Migra senha legada para hash BCrypt quando necessário.
-        if (!usuario.Senha.StartsWith("$2", StringComparison.Ordinal))
+        if (!isBcryptHash)
         {
             var hash = BCrypt.Net.BCrypt.HashPassword(request.Senha);
             await _authRepository.UpdateSenhaAsync(usuario, hash);
         }
 
         var permissoes = await _authRepository.GetPermissoesAsync(usuario.Id, usuario.PerfilId);
+        if (permissoes.Count == 0)
+        {
+            var atualizouPermissoes = await _authRepository.GarantirPermissoesPadraoPerfilAsync(
+                usuario.PerfilId,
+                loginContext.Perfil.Nome);
+            if (atualizouPermissoes)
+            {
+                permissoes = await _authRepository.GetPermissoesAsync(usuario.Id, usuario.PerfilId);
+            }
+        }
+
         var isSuperAdmin = AuthConstants.IsSystemSuperAdmin(
             loginContext.Escola.CodigoEscola,
             loginContext.Perfil.Nome);
@@ -68,11 +90,10 @@ public sealed class AuthService : IAuthService
         var (token, expiresAtUtc) = _jwtTokenService.GenerateToken(userDto);
         var response = new LoginResponseDto
         {
-            Token = token,
             ExpiraEmUtc = expiresAtUtc,
             Usuario = userDto
         };
 
-        return AuthResult.Ok(response);
+        return AuthResult.Ok(token, response);
     }
 }
