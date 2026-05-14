@@ -11,6 +11,12 @@ export interface Aula {
   conteudoDado?: string;
   tipoAula: "Normal" | "Reposicao";
   status: "Agendada" | "Realizada" | "Cancelada";
+  /** Preenchidos pela API na listagem (agenda). */
+  turmaNome?: string;
+  livroNome?: string;
+  reposicaoAlunoNome?: string;
+  reposicaoAulaOriginalNumero?: number;
+  reposicaoAulaOriginalData?: string;
 }
 
 export interface Presenca {

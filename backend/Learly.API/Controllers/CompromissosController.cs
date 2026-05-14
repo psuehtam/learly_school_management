@@ -53,13 +53,10 @@ public sealed class CompromissosController : ControllerBase
     {
         var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
         var usuarios = await _usuarios.ListarMinhaEscolaAsync(uc, cancellationToken);
+        // Qualquer usuario ativo da escola pode ser convidado; a criacao valida ids na escola.
         var permitidos = usuarios
             .Where(u => string.Equals(u.Status, "Ativo", StringComparison.OrdinalIgnoreCase))
-            .Where(u =>
-                string.Equals(u.PerfilNome, "Secretaria", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(u.PerfilNome, "Coordenador", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(u.PerfilNome, "Professor", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(u.PerfilNome, "Administrador", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(u => u.NomeCompleto, StringComparer.OrdinalIgnoreCase)
             .Select(u => new { u.Id, u.NomeCompleto, u.PerfilNome })
             .ToList();
 

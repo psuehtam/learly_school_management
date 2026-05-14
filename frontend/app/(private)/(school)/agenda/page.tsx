@@ -1,28 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   listarEventos,
   listarAulas,
   listarCompromissosAgendaGlobal,
+  listarHorariosFuncionamento,
   listarParticipantesCompromissos,
   type EventoCalendario,
-  type Aula,
-  type Compromisso,
+  type HorarioFuncionamentoDto,
   type ParticipanteCompromisso,
   getApiErrorMessage,
 } from "@/lib/api";
+import {
+  mapearAulasParaOcupacoesAgenda,
+  mapearCompromissosParaOcupacoesAgenda,
+  AGENDA_ALTURA_MINIMA_CARD_OCUPACAO_PX,
+  atribuirFaixasSobrepostasAgenda,
+  type OcupacaoAgendaItem,
+} from "@/lib/agenda";
+import { AgendaOcupacaoCard } from "@/components/escola/agenda-ocupacao-card";
+import { AgendaOcupacaoDetalheModal } from "@/components/escola/agenda-ocupacao-detalhe-modal";
 
 interface UsuarioAgenda {
   id: number;
   nome: string;
 }
 
-type ItemAgenda =
-  | { id: string; usuarioId: number; inicio: string; fim: string; titulo: string; subtitulo: string; tipo: "AULA" | "REPOSICAO" }
-  | { id: string; usuarioId: number; inicio: string; fim: string; titulo: string; subtitulo: string; tipo: "COMPROMISSO" };
-
 const HORAS_DIA = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+
+/** Altura útil da grade (8h–22h, um bloco de 80px por hora listada). */
+const GRID_ALTURA_CONTEUDO_PX = HORAS_DIA.length * 80;
 
 function calcularTop(horario: string) {
   const [h, m] = horario.split(":").map(Number);
@@ -35,25 +43,34 @@ function calcularHeight(inicio: string, fim: string) {
   return ((h2 * 60 + m2) - (h1 * 60 + m1)) * (80 / 60);
 }
 
+/**
+ * Faixas (top/height em px) fora do expediente configurado, no mesmo sistema dos cards da agenda.
+ * Ignora faixas muito pequenas (menos de 8px).
+ */
+function faixasForaDoHorarioEscola(abertura: string, fechamento: string): { topPx: number; heightPx: number }[] {
+  const out: { topPx: number; heightPx: number }[] = [];
+  const topAb = calcularTop(abertura);
+  const topFe = calcularTop(fechamento);
+  if (topAb > 2) {
+    const h = Math.min(topAb, GRID_ALTURA_CONTEUDO_PX);
+    if (h >= 8) out.push({ topPx: 0, heightPx: h });
+  }
+  if (topFe < GRID_ALTURA_CONTEUDO_PX - 2) {
+    const h = GRID_ALTURA_CONTEUDO_PX - topFe;
+    if (h >= 8) out.push({ topPx: topFe, heightPx: h });
+  }
+  return out;
+}
+
 function corEventoCalendario(tipoEvento: EventoCalendario["tipoEvento"]) {
   if (tipoEvento === "FERIADO") return "bg-red-50 text-red-700 border-red-200";
   if (tipoEvento === "RECESSO") return "bg-blue-50 text-blue-700 border-blue-200";
   return "bg-amber-50 text-amber-700 border-amber-200";
 }
 
-function toTime(value: string) {
-  return value.length >= 5 ? value.slice(0, 5) : value;
-}
-
 function corColuna(index: number) {
   const cores = ["bg-blue-600", "bg-purple-600", "bg-emerald-600", "bg-orange-600", "bg-pink-600", "bg-cyan-600"];
   return cores[index % cores.length];
-}
-
-function cardClasses(tipo: ItemAgenda["tipo"]) {
-  if (tipo === "REPOSICAO") return "bg-amber-50 border-amber-200 text-amber-900";
-  if (tipo === "COMPROMISSO") return "bg-violet-50 border-violet-200 text-violet-900";
-  return "bg-blue-50 border-blue-200 text-blue-900";
 }
 
 // ─── Página Principal ─────────────────────────────────────────────────────────
@@ -62,9 +79,17 @@ export default function AgendaGlobalPage() {
   const [busca, setBusca] = useState("");
   const [usuarioSelecionadoId, setUsuarioSelecionadoId] = useState<number | "todos">("todos");
   const [eventosCalendario, setEventosCalendario] = useState<EventoCalendario[]>([]);
+  /** Colunas do grid (filtrado). */
   const [usuariosAgenda, setUsuariosAgenda] = useState<UsuarioAgenda[]>([]);
-  const [itensAgenda, setItensAgenda] = useState<ItemAgenda[]>([]);
+  /** Opções do select: sempre quem pode aparecer no dia, independente do filtro atual. */
+  const [usuariosOpcoesFiltro, setUsuariosOpcoesFiltro] = useState<UsuarioAgenda[]>([]);
+  const [itensAgenda, setItensAgenda] = useState<OcupacaoAgendaItem[]>([]);
+  const [horariosFuncionamento, setHorariosFuncionamento] = useState<HorarioFuncionamentoDto[]>([]);
   const [erro, setErro] = useState<string | null>(null);
+  const [detalheAgenda, setDetalheAgenda] = useState<{
+    item: OcupacaoAgendaItem;
+    usuarioNome: string;
+  } | null>(null);
 
   useEffect(() => {
     async function carregarAgenda() {
@@ -72,61 +97,56 @@ export default function AgendaGlobalPage() {
       try {
         const data = new Date(`${dataSelecionada}T00:00:00`);
         const filtroUsuario = usuarioSelecionadoId === "todos" ? undefined : usuarioSelecionadoId;
-        const [eventos, aulas, compromissos, participantes] = await Promise.all([
+        const [eventos, aulas, compromissos, participantes, horarios] = await Promise.all([
           listarEventos(data.getMonth() + 1, data.getFullYear()),
           listarAulas(),
-          listarCompromissosAgendaGlobal(dataSelecionada, filtroUsuario),
+          listarCompromissosAgendaGlobal(dataSelecionada),
           listarParticipantesCompromissos(),
+          listarHorariosFuncionamento().catch(() => [] as HorarioFuncionamentoDto[]),
         ]);
 
         setEventosCalendario(eventos);
+        setHorariosFuncionamento(horarios);
 
         const mapaUsuarios = new Map<number, string>();
         participantes.forEach((p: ParticipanteCompromisso) => mapaUsuarios.set(p.id, p.nomeCompleto));
 
-        const aulasDoDia = aulas.filter((a: Aula) => a.dataAula === dataSelecionada && a.status !== "Cancelada");
-        const aulasFiltradas = filtroUsuario
-          ? aulasDoDia.filter((a: Aula) => a.professorId === filtroUsuario)
-          : aulasDoDia;
+        const itensAulaTodos = mapearAulasParaOcupacoesAgenda(aulas, dataSelecionada, {});
+        const itensCompTodos = mapearCompromissosParaOcupacoesAgenda(compromissos, {});
 
-        const itensAula: ItemAgenda[] = aulasFiltradas.map((a: Aula) => ({
-          id: `aula-${a.id}`,
-          usuarioId: a.professorId,
-          inicio: toTime(a.horarioInicio),
-          fim: toTime(a.horarioFim),
-          titulo: a.tipoAula === "Reposicao" ? `Reposicao #${a.numeroAula}` : `Aula #${a.numeroAula}`,
-          subtitulo: `Turma ${a.turmaId}`,
-          tipo: a.tipoAula === "Reposicao" ? "REPOSICAO" : "AULA",
-        }));
+        const idsSelect = new Set<number>();
+        itensAulaTodos.forEach((i) => idsSelect.add(i.usuarioId));
+        itensCompTodos.forEach((i) => idsSelect.add(i.usuarioId));
+        participantes.forEach((p: ParticipanteCompromisso) => idsSelect.add(p.id));
 
-        const compromissosValidos = compromissos.filter((c: Compromisso) => c.status !== "Cancelado");
-        const itensCompromisso: ItemAgenda[] = compromissosValidos.flatMap((c: Compromisso) => {
-          const ini = new Date(c.dataInicio);
-          const fim = new Date(c.dataFim);
-          const inicio = `${String(ini.getHours()).padStart(2, "0")}:${String(ini.getMinutes()).padStart(2, "0")}`;
-          const termino = `${String(fim.getHours()).padStart(2, "0")}:${String(fim.getMinutes()).padStart(2, "0")}`;
-          return c.participantesUsuarioIds
-            .filter((uid) => (filtroUsuario ? uid === filtroUsuario : true))
-            .map((uid) => ({
-              id: `comp-${c.id}-${uid}`,
-              usuarioId: uid,
-              inicio,
-              fim: termino,
-              titulo: c.titulo,
-              subtitulo: c.local ?? "Compromisso",
-              tipo: "COMPROMISSO" as const,
-            }));
+        const opcoesFiltro = Array.from(idsSelect)
+          .map((id) => ({
+            id,
+            nome: mapaUsuarios.get(id) ?? `Usuario ${id}`,
+          }))
+          .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+        setUsuariosOpcoesFiltro(opcoesFiltro);
+
+        const itensAula = mapearAulasParaOcupacoesAgenda(aulas, dataSelecionada, {
+          professorId: filtroUsuario,
+        });
+
+        const itensCompromisso = mapearCompromissosParaOcupacoesAgenda(compromissos, {
+          usuarioId: filtroUsuario,
         });
 
         const todosItens = [...itensAula, ...itensCompromisso];
         setItensAgenda(todosItens);
 
-        const ids = Array.from(new Set(todosItens.map((i) => i.usuarioId)));
-        const usuarios = ids.map((id) => ({
+        let idsColunas = Array.from(new Set(todosItens.map((i) => i.usuarioId)));
+        if (filtroUsuario != null && !idsColunas.includes(filtroUsuario)) {
+          idsColunas = [...idsColunas, filtroUsuario];
+        }
+        const usuariosColunas = idsColunas.map((id) => ({
           id,
           nome: mapaUsuarios.get(id) ?? `Usuario ${id}`,
         }));
-        setUsuariosAgenda(usuarios);
+        setUsuariosAgenda(usuariosColunas);
       } catch (e) {
         setErro(getApiErrorMessage(e, "Nao foi possivel carregar agenda global."));
       }
@@ -139,14 +159,54 @@ export default function AgendaGlobalPage() {
     (f) => f.dataEvento === dataSelecionada && f.suspendeAula,
   );
 
+  const diaSemanaAgenda = useMemo(() => {
+    const d = new Date(`${dataSelecionada}T12:00:00`);
+    return d.getDay();
+  }, [dataSelecionada]);
+
+  const configHorarioDia = useMemo(
+    () => horariosFuncionamento.find((h) => h.diaSemana === diaSemanaAgenda),
+    [horariosFuncionamento, diaSemanaAgenda],
+  );
+
+  const escolaFechadaDiaInteiro =
+    !eventoHoje && configHorarioDia != null && !configHorarioDia.aberto;
+
+  const faixasForaExpediente = useMemo(() => {
+    if (eventoHoje || escolaFechadaDiaInteiro) return [];
+    if (
+      !configHorarioDia?.aberto ||
+      !configHorarioDia.horarioAbertura ||
+      !configHorarioDia.horarioFechamento
+    ) {
+      return [];
+    }
+    return faixasForaDoHorarioEscola(configHorarioDia.horarioAbertura, configHorarioDia.horarioFechamento);
+  }, [eventoHoje, escolaFechadaDiaInteiro, configHorarioDia]);
+
   const termoBusca = busca.toLowerCase();
-  function verificaDestaque(item: ItemAgenda) {
+  function verificaDestaque(item: OcupacaoAgendaItem) {
     if (!termoBusca) return true;
-    return item.titulo.toLowerCase().includes(termoBusca) || item.subtitulo.toLowerCase().includes(termoBusca);
+    const hay = [
+      item.titulo,
+      item.subtitulo,
+      item.contextoAulaExtra,
+      item.categoriaCompromisso,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(termoBusca);
   }
 
   return (
     <>
+      <AgendaOcupacaoDetalheModal
+        open={detalheAgenda !== null}
+        onClose={() => setDetalheAgenda(null)}
+        item={detalheAgenda?.item ?? null}
+        usuarioColunaNome={detalheAgenda?.usuarioNome}
+      />
       <div className="flex flex-col gap-6 h-full">
         
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -156,7 +216,6 @@ export default function AgendaGlobalPage() {
           </div>
 
           <div className="flex gap-3">
-            {/* O SEGREDO ESTÁ AQUI: TESTE COLOCAR "2026-02-16" NESSE CALENDÁRIO */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Dia Letivo</label>
               <div className="flex items-center bg-white border border-zinc-300 rounded-lg h-9 overflow-hidden shadow-sm">
@@ -175,7 +234,7 @@ export default function AgendaGlobalPage() {
                 className="h-9 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35] transition w-56 bg-white shadow-sm"
               >
                 <option value="todos">Todos</option>
-                {usuariosAgenda.map((u) => (
+                {usuariosOpcoesFiltro.map((u) => (
                   <option key={u.id} value={u.id}>{u.nome}</option>
                 ))}
               </select>
@@ -199,6 +258,21 @@ export default function AgendaGlobalPage() {
               <p className="font-medium mt-2">Não há aulas agendadas para este dia.</p>
               <p className="text-xs mt-1 opacity-70">O bloqueio foi configurado no Calendário Geral da escola.</p>
             </div>
+          ) : escolaFechadaDiaInteiro ? (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-amber-50/95 text-amber-950 border border-amber-200 backdrop-blur-[2px] px-6">
+              <svg className="mb-4 opacity-80" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+                <path d="M8 14h8M8 18h5" />
+              </svg>
+              <h2 className="text-xl font-bold uppercase tracking-wide text-center">Sem aula</h2>
+              <p className="font-medium mt-2 text-center max-w-md">
+                Escola fechada neste dia da semana (horário de funcionamento).
+              </p>
+              <p className="text-xs mt-2 opacity-80 text-center max-w-sm">
+                Ajuste em <span className="font-semibold">Horário de funcionamento</span> se precisar abrir este dia.
+              </p>
+            </div>
           ) : null}
 
           {/* GRID NORMAL DA AGENDA (Fica atrás do aviso se for feriado) */}
@@ -217,28 +291,50 @@ export default function AgendaGlobalPage() {
 
             {usuariosAgenda.map((usuario, index) => {
               const itensDoUsuario = itensAgenda.filter(i => i.usuarioId === usuario.id);
+              const posicionados = itensDoUsuario.map((item) => {
+                const topPx = calcularTop(item.inicio);
+                const alturaReal = calcularHeight(item.inicio, item.fim);
+                const alturaExibicaoPx = Math.max(alturaReal, AGENDA_ALTURA_MINIMA_CARD_OCUPACAO_PX);
+                return { item, topPx, alturaExibicaoPx };
+              });
+              const faixas = atribuirFaixasSobrepostasAgenda(posicionados);
               return (
                 <div key={usuario.id} className={`flex-1 min-w-[220px] relative ${index !== usuariosAgenda.length - 1 ? 'border-r border-zinc-100' : ''}`}>
-                  <div className="h-12 bg-white border-b border-zinc-200 sticky top-0 z-10 flex items-center justify-center gap-2 shadow-sm">
-                    <span className={`w-2.5 h-2.5 rounded-full ${corColuna(index)}`}></span>
-                    <span className="text-sm font-bold text-zinc-800">{usuario.nome}</span>
+                  <div className="h-12 bg-white border-b border-zinc-200 sticky top-0 z-10 flex items-center justify-center gap-2 px-2 shadow-sm">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${corColuna(index)}`}></span>
+                    <span className="text-sm font-semibold text-zinc-900 text-center leading-tight line-clamp-2">
+                      {usuario.nome}
+                    </span>
                   </div>
                   <div className="relative pt-12">
-                    {itensDoUsuario.map(item => {
-                      const top = calcularTop(item.inicio);
-                      const height = calcularHeight(item.inicio, item.fim);
-                      const temDestaque = verificaDestaque(item);
-                      return (
-                        <div key={item.id} style={{ top: `${top}px`, height: `${height}px` }} className={`absolute left-1 right-1 rounded-lg p-2.5 border cursor-pointer overflow-hidden transition-all duration-200 ${temDestaque ? 'opacity-100 hover:shadow-md z-10' : 'opacity-30 grayscale hover:opacity-50'} ${cardClasses(item.tipo)}`}>
-                          <div className={`absolute left-0 top-0 bottom-0 w-1 ${corColuna(index)}`}></div>
-                          <div className="flex flex-col h-full ml-1 justify-between">
-                            <div>
-                              <h4 className="text-xs font-bold leading-tight">{item.titulo}</h4>
-                              <p className="text-[10px] font-medium mt-0.5">{item.inicio} - {item.fim}</p>
-                              <p className="text-[10px] mt-1 opacity-80">{item.subtitulo}</p>
-                            </div>
-                          </div>
+                    {!eventoHoje &&
+                      !escolaFechadaDiaInteiro &&
+                      faixasForaExpediente.map((faixa, fi) => (
+                        <div
+                          key={`fora-${fi}-${usuario.id}`}
+                          className="absolute left-1 right-1 z-[2] flex items-center justify-center rounded-md border border-amber-300/90 bg-amber-100/90 px-1 py-0.5 pointer-events-none shadow-sm"
+                          style={{ top: faixa.topPx, height: faixa.heightPx, minHeight: 8 }}
+                          title="Fora do horário de funcionamento da escola — sem aula neste período"
+                        >
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-amber-950 text-center leading-tight">
+                            Sem aula · Fora do horário
+                          </span>
                         </div>
+                      ))}
+                    {posicionados.map(({ item, topPx, alturaExibicaoPx }) => {
+                      const temDestaque = verificaDestaque(item);
+                      const fh = faixas.get(item.id) ?? { indice: 0, total: 1 };
+                      return (
+                        <AgendaOcupacaoCard
+                          key={item.id}
+                          item={item}
+                          topPx={topPx}
+                          alturaExibicaoPx={alturaExibicaoPx}
+                          faixaHorizontal={fh}
+                          temDestaque={temDestaque}
+                          corBarraLateral={corColuna(index)}
+                          onClick={() => setDetalheAgenda({ item, usuarioNome: usuario.nome })}
+                        />
                       );
                     })}
                   </div>

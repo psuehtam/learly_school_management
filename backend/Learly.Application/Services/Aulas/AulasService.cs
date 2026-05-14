@@ -60,7 +60,10 @@ public sealed class AulasService : IAulasService
             filtroProfessor,
             cancellationToken);
 
-        return entidades.Select(a => _mapper.Map<AulaListItemResponse>(a)).ToList();
+        var list = entidades.Select(a => _mapper.Map<AulaListItemResponse>(a)).ToList();
+        await EnriquecerAulasParaAgendaAsync(list, escolaId.Value, cancellationToken);
+
+        return list;
     }
 
     public async Task<AulaListItemResponse?> ObterPorIdAsync(
@@ -76,7 +79,14 @@ public sealed class AulasService : IAulasService
 
         var filtroProfessor = EhProfessor(uc) ? uc.UserId : (int?)null;
         var entidade = await _aulas.ObterSemRastreioPorIdEEscolaAsync(id, escolaId.Value, filtroProfessor, cancellationToken);
-        return entidade is null ? null : _mapper.Map<AulaListItemResponse>(entidade);
+        if (entidade is null)
+        {
+            return null;
+        }
+
+        var dto = _mapper.Map<AulaListItemResponse>(entidade);
+        await EnriquecerAulasParaAgendaAsync([dto], escolaId.Value, cancellationToken);
+        return dto;
     }
 
     public async Task<AulaCriacaoResultado> CriarAsync(
@@ -234,6 +244,43 @@ public sealed class AulasService : IAulasService
         aula.Status = Aula.Estados.Cancelada;
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return new AulaOperacaoResultado(true, null, 204);
+    }
+
+    private async Task EnriquecerAulasParaAgendaAsync(
+        IReadOnlyList<AulaListItemResponse> itens,
+        int escolaId,
+        CancellationToken cancellationToken)
+    {
+        if (itens.Count == 0)
+        {
+            return;
+        }
+
+        var turmaIds = itens.Select(a => a.TurmaId).Distinct().ToList();
+        var resumoTurmas = await _turmas.ObterResumoParaAgendaAsync(escolaId, turmaIds, cancellationToken);
+
+        var idsReposicao = itens
+            .Where(a => string.Equals(a.TipoAula, "Reposicao", StringComparison.OrdinalIgnoreCase))
+            .Select(a => a.Id)
+            .Distinct()
+            .ToList();
+        var ctxReposicao = await _aulas.ObterContextoReposicaoPorAulaIdsAsync(escolaId, idsReposicao, cancellationToken);
+
+        foreach (var dto in itens)
+        {
+            if (resumoTurmas.TryGetValue(dto.TurmaId, out var tr))
+            {
+                dto.TurmaNome = tr.TurmaNome;
+                dto.LivroNome = tr.LivroNome;
+            }
+
+            if (ctxReposicao.TryGetValue(dto.Id, out var rx))
+            {
+                dto.ReposicaoAlunoNome = rx.AlunoNomeCompleto;
+                dto.ReposicaoAulaOriginalNumero = rx.NumeroAulaOriginal;
+                dto.ReposicaoAulaOriginalData = rx.DataAulaOriginal;
+            }
+        }
     }
 
     private static bool EhProfessor(AppUserContext uc) =>

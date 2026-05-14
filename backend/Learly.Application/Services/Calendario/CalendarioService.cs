@@ -74,11 +74,15 @@ public sealed class CalendarioService : ICalendarioService
             return (false, null, ex.Message, 400);
         }
 
-        if (string.Equals(tipoNormalizado, CalendarioGeral.TiposEvento.SemAula, StringComparison.OrdinalIgnoreCase))
+        if (CalendarioGeral.TipoSuspendeAula(tipoNormalizado))
         {
-            var validarSemAula = await ValidarCriacaoSemAulaAsync(escolaId.Value, request.DataEvento, cancellationToken);
-            if (validarSemAula.Error is not null)
-                return (false, null, validarSemAula.Error, validarSemAula.StatusCode);
+            var validar = await ValidarDataEventoSuspensivoAsync(
+                escolaId.Value,
+                request.DataEvento,
+                tipoNormalizado,
+                cancellationToken);
+            if (validar.Error is not null)
+                return (false, null, validar.Error, validar.StatusCode);
         }
 
         var entidade = new CalendarioGeral
@@ -131,13 +135,12 @@ public sealed class CalendarioService : ICalendarioService
             return (false, null, ex.Message, 400);
         }
 
-        var validandoSemAula = string.Equals(tipoEvento, CalendarioGeral.TiposEvento.SemAula, StringComparison.OrdinalIgnoreCase)
-            && (request.TipoEvento is not null || request.DataEvento.HasValue);
-        if (validandoSemAula)
+        var mudouTipoOuData = request.TipoEvento is not null || request.DataEvento.HasValue;
+        if (CalendarioGeral.TipoSuspendeAula(tipoEvento) && mudouTipoOuData)
         {
-            var validarSemAula = await ValidarCriacaoSemAulaAsync(escolaId.Value, novaData, cancellationToken);
-            if (validarSemAula.Error is not null)
-                return (false, null, validarSemAula.Error, validarSemAula.StatusCode);
+            var validar = await ValidarDataEventoSuspensivoAsync(escolaId.Value, novaData, tipoEvento, cancellationToken);
+            if (validar.Error is not null)
+                return (false, null, validar.Error, validar.StatusCode);
         }
 
         entidade.DataEvento = novaData;
@@ -168,24 +171,40 @@ public sealed class CalendarioService : ICalendarioService
         return (true, null, 204);
     }
 
-    private async Task<(string? Error, int StatusCode)> ValidarCriacaoSemAulaAsync(
+    /// <summary>Sem aula, feriado e recesso: só a partir de amanhã; não pode haver compromisso ativo no dia.</summary>
+    private async Task<(string? Error, int StatusCode)> ValidarDataEventoSuspensivoAsync(
         int escolaId,
         DateOnly dataEvento,
+        string tipoNormalizado,
         CancellationToken cancellationToken)
     {
+        var rotulo = RotuloTipoAmigavel(tipoNormalizado);
         var hoje = DateOnly.FromDateTime(DateTime.Now);
         if (dataEvento < hoje)
-            return ("Nao e permitido criar 'SEM AULA' em data anterior a hoje.", 400);
+            return ($"Nao e permitido marcar {rotulo} em data anterior a hoje.", 400);
 
         if (dataEvento == hoje)
-            return ("Nao e permitido criar 'SEM AULA' para o dia atual.", 400);
+            return ($"Nao e permitido marcar {rotulo} no dia de hoje. Escolha a partir de amanha.", 400);
 
         if (await _compromissos.ExisteCompromissoAtivoNoDiaAsync(escolaId, dataEvento, cancellationToken))
         {
-            return ("Ja existem compromissos neste dia. Reagende/cancele os compromissos antes de marcar 'SEM AULA'.", 409);
+            return (
+                $"Nao e possivel marcar {rotulo} nesta data: existem compromissos ativos nesse dia. Cancele ou reagende os compromissos antes de bloquear o dia no calendario.",
+                409);
         }
 
         return (null, 200);
+    }
+
+    private static string RotuloTipoAmigavel(string tipoNormalizado)
+    {
+        if (string.Equals(tipoNormalizado, CalendarioGeral.TiposEvento.SemAula, StringComparison.OrdinalIgnoreCase))
+            return "Sem aula";
+        if (string.Equals(tipoNormalizado, CalendarioGeral.TiposEvento.Feriado, StringComparison.OrdinalIgnoreCase))
+            return "Feriado";
+        if (string.Equals(tipoNormalizado, CalendarioGeral.TiposEvento.Recesso, StringComparison.OrdinalIgnoreCase))
+            return "Recesso";
+        return tipoNormalizado;
     }
 
     private Task<int?> ObterIdEscolaAtivaPorCodigoAsync(string? codigoEscola, CancellationToken cancellationToken)

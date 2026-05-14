@@ -1,4 +1,4 @@
-import type { MenuEntry, MenuGroupConfig, MenuItemConfig } from "@/lib/menu-config";
+import { itemRequiredPermissions, type MenuEntry, type MenuGroupConfig, type MenuItemConfig } from "@/lib/menu-config";
 import type { User } from "@/lib/api/types";
 
 /**
@@ -15,12 +15,12 @@ export function filterMenu(entries: MenuEntry[], user: User): MenuEntry[] {
 
   for (const entry of entries) {
     if (entry.type === "item") {
-      if (permissions.has(entry.permission)) {
+      if (itemRequiredPermissions(entry.permission).some((p) => permissions.has(p))) {
         result.push(entry);
       }
     } else {
       const visibleItems = entry.items.filter((item) =>
-        permissions.has(item.permission),
+        itemRequiredPermissions(item.permission).some((p) => permissions.has(p)),
       );
       if (visibleItems.length > 0) {
         result.push({ ...entry, items: visibleItems });

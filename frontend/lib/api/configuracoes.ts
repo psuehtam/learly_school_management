@@ -23,6 +23,11 @@ export async function listarHorariosFuncionamento(): Promise<HorarioFuncionament
   return apiRequest<HorarioFuncionamentoDto[]>("/api/horarios-funcionamento");
 }
 
+/** Leitura para validar compromissos (perfis que agendam; nao exige VISUALIZAR_USUARIO). */
+export async function listarHorariosFuncionamentoConsultaCompromissos(): Promise<HorarioFuncionamentoDto[]> {
+  return apiRequest<HorarioFuncionamentoDto[]>("/api/horarios-funcionamento/consulta-compromissos");
+}
+
 export async function atualizarHorariosFuncionamento(
   payload: AtualizarHorariosPayload,
 ): Promise<HorarioFuncionamentoDto[]> {

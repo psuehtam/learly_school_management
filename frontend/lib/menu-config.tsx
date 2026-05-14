@@ -11,7 +11,6 @@ import {
   IconDollar,
   IconSettings,
   IconBuilding,
-  IconSliders,
 } from "@/components/icons";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -22,9 +21,17 @@ export type MenuItemConfig = {
   label: string;
   href: string;
   icon: ReactNode;
-  /** Permissão de VISUALIZAÇÃO necessária para exibir este item. */
-  permission: PermissaoNome;
+  /**
+   * Permissão(ões) para exibir o item e acessar a rota.
+   * Se for um array, basta o usuário ter uma delas (OR).
+   */
+  permission: PermissaoNome | PermissaoNome[];
 };
+
+/** Lista de permissões exigidas pelo item (uma ou várias, OR na filtragem). */
+export function itemRequiredPermissions(permission: PermissaoNome | PermissaoNome[]): PermissaoNome[] {
+  return Array.isArray(permission) ? permission : [permission];
+}
 
 export type MenuGroupConfig = {
   type: "group";
@@ -186,11 +193,11 @@ export const SCHOOL_MENU: MenuEntry[] = [
       },
       {
         type: "item",
-        key: "configuracoes",
-        label: "Configurações",
-        href: "/configuracoes",
-        icon: <IconSliders />,
-        permission: "GERENCIAR_CONFIGURACOES_SISTEMA",
+        key: "horarios-funcionamento",
+        label: "Horário de funcionamento",
+        href: "/horarios-funcionamento",
+        icon: <IconClock />,
+        permission: ["VISUALIZAR_USUARIO", "GERENCIAR_CONFIGURACOES_SISTEMA"],
       },
     ],
   },
@@ -240,7 +247,7 @@ export function buildRoutePermissions(
 ): Record<string, PermissaoNome[]> {
   const map: Record<string, PermissaoNome[]> = {};
   for (const item of collectItems(entries)) {
-    map[item.href] = [item.permission];
+    map[item.href] = itemRequiredPermissions(item.permission);
   }
   return map;
 }
