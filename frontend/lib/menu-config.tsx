@@ -11,6 +11,7 @@ import {
   IconDollar,
   IconSettings,
   IconBuilding,
+  IconContracts,
 } from "@/components/icons";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -70,6 +71,14 @@ export const SCHOOL_MENU: MenuEntry[] = [
         href: "/comercial",
         icon: <IconTrendingUp />,
         permission: "VISUALIZAR_PRE_ALUNO",
+      },
+      {
+        type: "item",
+        key: "comercial-contratos",
+        label: "Contratos",
+        href: "/contratos",
+        icon: <IconContracts />,
+        permission: ["VISUALIZAR_TEMPLATE_CONTRATO", "VISUALIZAR_CONTRATO", "GERAR_CONTRATO"],
       },
     ],
   },

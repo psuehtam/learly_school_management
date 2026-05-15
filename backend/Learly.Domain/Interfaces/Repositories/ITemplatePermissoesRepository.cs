@@ -27,4 +27,16 @@ public interface ITemplatePermissoesRepository
         int perfilTemplateId,
         IReadOnlyList<int> permissaoIds,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Propaga as permissões de um perfil-template para TODAS as escolas existentes:
+    /// substitui integralmente os vínculos em <c>perfil_permissoes</c> de cada
+    /// <c>perfis</c> cujo nome coincida com <paramref name="nomePerfilTemplate"/>,
+    /// excluindo a escola reservada <c>SYSTEM</c>.
+    /// Deve ser chamado dentro de uma transação aberta.
+    /// </summary>
+    Task PropagateToAllEscolasAsync(
+        string nomePerfilTemplate,
+        IReadOnlyList<int> permissaoIds,
+        CancellationToken cancellationToken = default);
 }

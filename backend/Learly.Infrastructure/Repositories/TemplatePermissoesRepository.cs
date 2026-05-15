@@ -68,6 +68,41 @@ internal sealed class TemplatePermissoesRepository(LearlyDbContext db) : ITempla
             });
         }
     }
+    public async Task PropagateToAllEscolasAsync(
+        string nomePerfilTemplate,
+        IReadOnlyList<int> permissaoIds,
+        CancellationToken cancellationToken = default)
+    {
+        // Remove todos os vínculos atuais dos perfis com este nome (exceto escola SYSTEM)
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            DELETE pp FROM perfil_permissoes pp
+            INNER JOIN perfis p  ON p.id  = pp.perfil_id
+            INNER JOIN escolas e ON e.id  = p.escola_id
+            WHERE p.nome = {nomePerfilTemplate}
+              AND e.codigo_escola != 'SYSTEM'
+            """,
+            cancellationToken);
+
+        if (permissaoIds.Count == 0)
+            return;
+
+        // Insere as novas permissões para cada escola (exceto SYSTEM)
+        foreach (var permissaoId in permissaoIds.Distinct())
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT IGNORE INTO perfil_permissoes (perfil_id, permissao_id)
+                SELECT p.id, {permissaoId}
+                FROM   perfis p
+                INNER JOIN escolas e ON e.id = p.escola_id
+                WHERE  p.nome = {nomePerfilTemplate}
+                  AND  e.codigo_escola != 'SYSTEM'
+                """,
+                cancellationToken);
+        }
+    }
+
     public async Task<Dictionary<string, List<string>>> ObterPermissoesDeTemplateAsync(
         CancellationToken cancellationToken = default)
     {

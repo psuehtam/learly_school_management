@@ -809,19 +809,19 @@ CREATE TABLE IF NOT EXISTS movimentacoes_financeiras (
 -- contratos_templates
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contratos_templates (
-  id                    INT      NOT NULL AUTO_INCREMENT,
-  escola_id             INT      NOT NULL,
-  versao                INT      NOT NULL,
-  template              LONGTEXT NOT NULL,
-  ativo                 TINYINT NOT NULL DEFAULT 0,
-  criado_por_usuario_id INT      NOT NULL,
-  data_criacao          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id                    INT          NOT NULL AUTO_INCREMENT,
+  escola_id             INT          NOT NULL,
+  nome                  VARCHAR(200) NOT NULL,
+  conteudo_html         LONGTEXT     NOT NULL,
+  versao                INT          NOT NULL,
+  ativo                 TINYINT      NOT NULL DEFAULT 0,
+  criado_por_usuario_id INT          NOT NULL,
+  data_criacao          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_ct_escola_versao (escola_id, versao),
-  KEY idx_ct_criado (criado_por_usuario_id),
   KEY idx_ct_ativo  (escola_id, ativo),
   CONSTRAINT fk_contratos_tpl_escola  FOREIGN KEY (escola_id)             REFERENCES escolas  (id),
-  CONSTRAINT fk_contratos_tpl_criado FOREIGN KEY (criado_por_usuario_id) REFERENCES usuarios (id)
+  CONSTRAINT fk_contratos_tpl_criado  FOREIGN KEY (criado_por_usuario_id) REFERENCES usuarios (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------
@@ -832,18 +832,17 @@ CREATE TABLE IF NOT EXISTS contratos_gerados (
   escola_id                INT      NOT NULL,
   pre_aluno_id             INT      NOT NULL,
   template_id              INT      NOT NULL,
-  conteudo_gerado          LONGTEXT NOT NULL,
+  conteudo_gerado_html     LONGTEXT NOT NULL,
   gerado_por_usuario_id    INT      NOT NULL,
   data_geracao             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_cg_escola     (escola_id),
   KEY idx_cg_pre_aluno  (pre_aluno_id),
   KEY idx_cg_template   (template_id),
-  KEY idx_cg_gerado     (gerado_por_usuario_id),
-  CONSTRAINT fk_cg_escola   FOREIGN KEY (escola_id)             REFERENCES escolas             (id),
-  CONSTRAINT fk_cg_pre_aluno FOREIGN KEY (pre_aluno_id)         REFERENCES pre_alunos          (id),
-  CONSTRAINT fk_cg_template FOREIGN KEY (template_id)           REFERENCES contratos_templates (id),
-  CONSTRAINT fk_cg_gerado   FOREIGN KEY (gerado_por_usuario_id) REFERENCES usuarios            (id)
+  CONSTRAINT fk_cg_escola    FOREIGN KEY (escola_id)             REFERENCES escolas             (id),
+  CONSTRAINT fk_cg_pre_aluno FOREIGN KEY (pre_aluno_id)          REFERENCES pre_alunos          (id),
+  CONSTRAINT fk_cg_template  FOREIGN KEY (template_id)           REFERENCES contratos_templates (id),
+  CONSTRAINT fk_cg_gerado    FOREIGN KEY (gerado_por_usuario_id) REFERENCES usuarios            (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -1140,12 +1139,16 @@ JOIN permissoes p ON p.nome IN (
   'CRIAR_USUARIO','VISUALIZAR_USUARIO','EDITAR_USUARIO','INATIVAR_USUARIO',
   'GERENCIAR_PERMISSOES_USUARIO','GERENCIAR_CONFIGURACOES_SISTEMA',
   'VISUALIZAR_TURMA','VISUALIZAR_AULA',
-  'VISUALIZAR_MATRICULA','VISUALIZAR_PRE_ALUNO','VISUALIZAR_PARCELA',
+  'VISUALIZAR_MATRICULA','VISUALIZAR_PRE_ALUNO','CRIAR_PRE_ALUNO','EDITAR_PRE_ALUNO','CANCELAR_PRE_ALUNO',
+  'APROVAR_MATRICULA','REPROVAR_MATRICULA','FINALIZAR_MATRICULA',
+  'VISUALIZAR_PARCELA',
   'VISUALIZAR_ALUNO','VISUALIZAR_REPOSICAO',
   'VISUALIZAR_LIVRO','CRIAR_LIVRO','EDITAR_LIVRO','INATIVAR_LIVRO',
   'VISUALIZAR_CALENDARIO','GERENCIAR_CALENDARIO','EDITAR_EVENTO_CALENDARIO','EXCLUIR_EVENTO_CALENDARIO',
   'VISUALIZAR_DASHBOARD_GERAL','VISUALIZAR_AGENDA_GLOBAL',
-  'CRIAR_COMPROMISSO','VISUALIZAR_COMPROMISSOS','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO'
+  'CRIAR_COMPROMISSO','VISUALIZAR_COMPROMISSOS','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO',
+  'VISUALIZAR_CONTRATO','GERAR_CONTRATO',
+  'VISUALIZAR_TEMPLATE_CONTRATO','CRIAR_TEMPLATE_CONTRATO','EDITAR_TEMPLATE_CONTRATO','INATIVAR_TEMPLATE_CONTRATO'
 )
 WHERE pt.nome = 'Administrador';
 
@@ -1165,6 +1168,7 @@ SELECT pt.id, p.id
 FROM perfis_template pt
 JOIN permissoes p ON p.nome IN (
   'VISUALIZAR_PRE_ALUNO','CRIAR_PRE_ALUNO','EDITAR_PRE_ALUNO','CANCELAR_PRE_ALUNO',
+  'VISUALIZAR_CONTRATO','GERAR_CONTRATO','VISUALIZAR_TEMPLATE_CONTRATO',
   'VISUALIZAR_COMPROMISSOS','CRIAR_COMPROMISSO','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO'
 )
 WHERE pt.nome = 'Comercial';
@@ -1178,6 +1182,7 @@ JOIN permissoes p ON p.nome IN (
   'APROVAR_MATRICULA','FINALIZAR_MATRICULA',
   'VISUALIZAR_ALUNO','CRIAR_ALUNO',
   'VISUALIZAR_PRE_ALUNO',
+  'VISUALIZAR_CONTRATO','GERAR_CONTRATO','VISUALIZAR_TEMPLATE_CONTRATO',
   'CRIAR_COMPROMISSO','VISUALIZAR_COMPROMISSOS','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO'
 )
 WHERE pt.nome = 'Secretaria';
@@ -1200,6 +1205,7 @@ JOIN permissoes p ON p.nome IN (
   'VISUALIZAR_TURMA','VISUALIZAR_AULA','VISUALIZAR_REPOSICAO',
   'VISUALIZAR_DASHBOARD_GERAL',
   'VISUALIZAR_LIVRO','CRIAR_LIVRO','EDITAR_LIVRO','INATIVAR_LIVRO',
+  'VISUALIZAR_CONTRATO','VISUALIZAR_TEMPLATE_CONTRATO','EDITAR_TEMPLATE_CONTRATO',
   'CRIAR_COMPROMISSO','VISUALIZAR_COMPROMISSOS','EDITAR_COMPROMISSO','EXCLUIR_COMPROMISSO'
 )
 WHERE pt.nome = 'Coordenador';

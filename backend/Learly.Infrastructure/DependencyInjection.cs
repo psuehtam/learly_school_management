@@ -48,6 +48,8 @@ public static class DependencyInjection
         services.AddScoped<IPermissaoRepository, PermissaoRepository>();
         services.AddScoped<IPerfilPermissaoRepository, PerfilPermissaoRepository>();
         services.AddScoped<ITemplatePermissoesRepository, TemplatePermissoesRepository>();
+        services.AddScoped<IContratoTemplateRepository, ContratoTemplateRepository>();
+        services.AddScoped<IContratoGeradoRepository, ContratoGeradoRepository>();
 
         return services;
     }

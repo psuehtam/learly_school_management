@@ -1,8 +1,13 @@
 import { apiRequest } from "@/lib/api/client";
 import type {
   PreAlunoListItem,
-  Contrato,
+  ContratoGerado,
   ContratoTemplate,
+  ContratoVariavel,
+  ContratoGeradoData,
+  CriarContratoTemplatePayload,
+  EditarContratoTemplatePayload,
+  GerarContratoPayload,
   LivroInteresseOpcao,
   CriarPreAlunoPayload,
 } from "@/types/comercial";
@@ -52,14 +57,50 @@ export async function finalizarMatricula(preAlunoId: number): Promise<Aluno> {
   return apiRequest<Aluno>(`/api/pre-alunos/${preAlunoId}/finalizar`, { method: "POST" });
 }
 
-export async function listarContratos(preAlunoId: number): Promise<Contrato[]> {
-  return apiRequest<Contrato[]>(`/api/pre-alunos/${preAlunoId}/contratos`);
+// ──────────────── Templates de Contrato ────────────────
+
+export async function listarContratoTemplates(): Promise<ContratoTemplate[]> {
+  return apiRequest<ContratoTemplate[]>("/api/contratos/templates");
 }
 
-export async function gerarContrato(preAlunoId: number): Promise<Contrato> {
-  return apiRequest<Contrato>(`/api/pre-alunos/${preAlunoId}/contratos`, { method: "POST" });
+export async function buscarContratoTemplateAtivo(): Promise<ContratoTemplate> {
+  return apiRequest<ContratoTemplate>("/api/contratos/templates/ativo");
 }
 
-export async function buscarTemplateAtivo(): Promise<ContratoTemplate> {
-  return apiRequest<ContratoTemplate>("/api/contratos/template-ativo");
+export async function buscarContratoTemplate(id: number): Promise<ContratoTemplate> {
+  return apiRequest<ContratoTemplate>(`/api/contratos/templates/${id}`);
+}
+
+export async function criarContratoTemplate(dados: CriarContratoTemplatePayload): Promise<void> {
+  await apiRequest<void>("/api/contratos/templates", { method: "POST", body: dados });
+}
+
+export async function editarContratoTemplate(id: number, dados: EditarContratoTemplatePayload): Promise<void> {
+  await apiRequest<void>(`/api/contratos/templates/${id}`, { method: "PUT", body: dados });
+}
+
+export async function ativarContratoTemplate(id: number): Promise<void> {
+  await apiRequest<void>(`/api/contratos/templates/${id}/ativar`, { method: "PATCH" });
+}
+
+export async function inativarContratoTemplate(id: number): Promise<void> {
+  await apiRequest<void>(`/api/contratos/templates/${id}/inativar`, { method: "PATCH" });
+}
+
+export async function listarVariaveisContrato(): Promise<ContratoVariavel[]> {
+  return apiRequest<ContratoVariavel[]>("/api/contratos/templates/variaveis");
+}
+
+// ──────────────── Contratos Gerados ────────────────
+
+export async function listarContratosGerados(): Promise<ContratoGerado[]> {
+  return apiRequest<ContratoGerado[]>("/api/contratos/gerados");
+}
+
+export async function listarContratosGeradosPorPreAluno(preAlunoId: number): Promise<ContratoGerado[]> {
+  return apiRequest<ContratoGerado[]>(`/api/contratos/gerados/pre-aluno/${preAlunoId}`);
+}
+
+export async function gerarContrato(dados: GerarContratoPayload): Promise<ContratoGeradoData> {
+  return apiRequest<ContratoGeradoData>("/api/contratos/gerar", { method: "POST", body: dados });
 }

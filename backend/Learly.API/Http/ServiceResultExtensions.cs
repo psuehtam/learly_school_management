@@ -1,6 +1,7 @@
 using Learly.Application.Contracts.Aulas;
 using Learly.Application.Contracts.Aulas.Responses;
 using Learly.Application.Contracts.Alunos.Responses;
+using Learly.Application.Contracts.Contratos;
 using Learly.Application.Contracts.Escolas;
 using Learly.Application.Contracts.Escolas.Responses;
 using Learly.Application.Contracts.HorariosFuncionamento;
@@ -430,6 +431,51 @@ public static class ServiceResultExtensions
         {
             Title = title,
             Detail = r.Mensagem ?? fallbackTitle,
+            Status = code
+        });
+    }
+
+    public static IActionResult ToActionResult(this ContratoTemplateOperacaoResultado r, ControllerBase c, string fallbackTitle)
+    {
+        if (r.Ok)
+            return r.StatusCode == 201 ? c.StatusCode(StatusCodes.Status201Created) : c.NoContent();
+
+        var code = r.StatusCode is >= 400 and <= 599 ? r.StatusCode : StatusCodes.Status400BadRequest;
+        var title = code switch
+        {
+            StatusCodes.Status403Forbidden  => "Acesso negado",
+            StatusCodes.Status404NotFound   => "Nao encontrado",
+            StatusCodes.Status409Conflict   => "Conflito",
+            StatusCodes.Status422UnprocessableEntity => "Requisicao invalida",
+            _ => "Requisicao invalida"
+        };
+
+        return c.StatusCode(code, new ProblemDetails
+        {
+            Title  = title,
+            Detail = r.Mensagem ?? fallbackTitle,
+            Status = code
+        });
+    }
+
+    public static IActionResult ToActionResult(this ContratoGeradoOperacaoResultado r, ControllerBase c)
+    {
+        if (r.Ok && r.Data is not null)
+            return c.StatusCode(StatusCodes.Status201Created, r.Data);
+
+        var code = r.StatusCode is >= 400 and <= 599 ? r.StatusCode : StatusCodes.Status400BadRequest;
+        var title = code switch
+        {
+            StatusCodes.Status403Forbidden  => "Acesso negado",
+            StatusCodes.Status404NotFound   => "Nao encontrado",
+            StatusCodes.Status422UnprocessableEntity => "Requisicao invalida",
+            _ => "Requisicao invalida"
+        };
+
+        return c.StatusCode(code, new ProblemDetails
+        {
+            Title  = title,
+            Detail = r.Mensagem ?? "Falha ao gerar contrato.",
             Status = code
         });
     }

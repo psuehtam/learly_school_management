@@ -6,6 +6,7 @@ import {
   criarPreAluno,
   getApiErrorMessage,
   cancelarPreAluno,
+  listarContratoTemplates,
   listarLivrosInteressePreAluno,
   listarPreAlunos,
   submeterPreAlunoParaAprovacao,
@@ -13,7 +14,13 @@ import {
 } from "@/lib/api";
 import { hasPermission } from "@/lib/permissions";
 import type { User } from "@/lib/api/types";
-import type { CriarPreAlunoPayload, LivroInteresseOpcao, PreAlunoListItem, PreAlunoStatus } from "@/types/comercial";
+import type {
+  ContratoTemplate,
+  CriarPreAlunoPayload,
+  LivroInteresseOpcao,
+  PreAlunoListItem,
+  PreAlunoStatus,
+} from "@/types/comercial";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,13 +123,17 @@ const emptyPayload: CriarPreAlunoPayload = {
   observacoesComerciais: "",
 };
 
+function escolherTemplateContratoPadrao(templates: ContratoTemplate[]): number | "" {
+  if (templates.length === 0) return "";
+  const ativo = templates.find((t) => t.ativo);
+  return ativo?.id ?? templates[0].id;
+}
+
 function serializarModalPreAlunoEstado(p: {
   form: CriarPreAlunoPayload;
   passo: PassoCadastroPreAluno;
   tipo: OpcaoRespAdulto;
-  contratoEmMesesLista: boolean;
-  mesesContrato: 6 | 12 | 18 | 24;
-  contratoTextoManual: string;
+  templateContratoId: number | "";
 }) {
   return JSON.stringify(p);
 }
@@ -140,6 +151,7 @@ export default function ComercialPage() {
   const [user, setUser] = useState<User | null>(null);
   const [lista, setLista] = useState<PreAlunoListItem[]>([]);
   const [livros, setLivros] = useState<LivroInteresseOpcao[]>([]);
+  const [contratoTemplates, setContratoTemplates] = useState<ContratoTemplate[]>([]);
   const [filtroStatus, setFiltroStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,9 +162,7 @@ export default function ComercialPage() {
   const [passoCadastro, setPassoCadastro] = useState<PassoCadastroPreAluno>("aluno");
   const [tipoResponsavelAdulto, setTipoResponsavelAdulto] = useState<OpcaoRespAdulto>(null);
   const [salvando, setSalvando] = useState(false);
-  const [contratoEmMesesLista, setContratoEmMesesLista] = useState(true);
-  const [mesesContrato, setMesesContrato] = useState<6 | 12 | 18 | 24>(12);
-  const [contratoTextoManual, setContratoTextoManual] = useState("");
+  const [templateContratoId, setTemplateContratoId] = useState<number | "">("");
   const [cepVanBuscando, setCepVanBuscando] = useState(false);
 
   const idadePreAluno = useMemo(() => calcularIdadeAnosDoDia(formNovo.dataNascimento), [formNovo.dataNascimento]);
@@ -169,18 +179,9 @@ export default function ComercialPage() {
         form: formNovo,
         passo: passoCadastro,
         tipo: tipoResponsavelAdulto,
-        contratoEmMesesLista,
-        mesesContrato,
-        contratoTextoManual,
+        templateContratoId,
       }),
-    [
-      formNovo,
-      passoCadastro,
-      tipoResponsavelAdulto,
-      contratoEmMesesLista,
-      mesesContrato,
-      contratoTextoManual,
-    ],
+    [formNovo, passoCadastro, tipoResponsavelAdulto, templateContratoId],
   );
 
   const preAlunoModalTemAlteracao =
@@ -204,12 +205,14 @@ export default function ComercialPage() {
     setLoading(true);
     setError(null);
     try {
-      const [pa, liv] = await Promise.all([
+      const [pa, liv, templates] = await Promise.all([
         listarPreAlunos(filtroStatus.trim() ? { status: filtroStatus.trim() } : undefined),
         listarLivrosInteressePreAluno(),
+        listarContratoTemplates().catch(() => [] as ContratoTemplate[]),
       ]);
       setLista(pa);
       setLivros(liv);
+      setContratoTemplates(templates);
     } catch (e) {
       setError(getApiErrorMessage(e, "Falha ao carregar dados do comercial."));
     } finally {
@@ -222,15 +225,15 @@ export default function ComercialPage() {
   }, [carregar]);
 
   function resolverTipoContrato(): string {
-    if (contratoEmMesesLista) return `${mesesContrato} meses`;
-    return contratoTextoManual.trim();
+    if (templateContratoId === "") return "";
+    const template = contratoTemplates.find((t) => t.id === templateContratoId);
+    return template?.nome.trim() ?? "";
   }
 
   const abrirNovo = () => {
+    const templatePadrao = escolherTemplateContratoPadrao(contratoTemplates);
     setFormNovo({ ...emptyPayload });
-    setContratoEmMesesLista(true);
-    setMesesContrato(12);
-    setContratoTextoManual("");
+    setTemplateContratoId(templatePadrao);
     setPassoCadastro("aluno");
     setTipoResponsavelAdulto(null);
     setPreAlunoModalBaseline(
@@ -238,9 +241,7 @@ export default function ComercialPage() {
         form: { ...emptyPayload },
         passo: "aluno",
         tipo: null,
-        contratoEmMesesLista: true,
-        mesesContrato: 12,
-        contratoTextoManual: "",
+        templateContratoId: templatePadrao,
       }),
     );
     setModalNovo(true);
@@ -494,10 +495,11 @@ export default function ComercialPage() {
     formNovo.responsavelTipoPessoa,
   ]);
 
-  const tipoContratoResolvido = useMemo(
-    () => (contratoEmMesesLista ? `${mesesContrato} meses` : contratoTextoManual.trim()),
-    [contratoEmMesesLista, mesesContrato, contratoTextoManual],
-  );
+  const tipoContratoResolvido = useMemo(() => {
+    if (templateContratoId === "") return "";
+    const template = contratoTemplates.find((t) => t.id === templateContratoId);
+    return template?.nome.trim() ?? "";
+  }, [templateContratoId, contratoTemplates]);
 
   const etapaComercialValida = useMemo(() => {
     const cepOk = digitsOnly(formNovo.transporteCep ?? "").length === 8;
@@ -926,46 +928,39 @@ export default function ComercialPage() {
               </h3>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2 space-y-2">
-                  <p className="text-sm font-medium text-zinc-700">Duração do contrato (meses)</p>
-                  <div className="flex flex-wrap gap-4 text-sm">
-                    <label className="inline-flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="tipo-contr-pre"
-                        checked={contratoEmMesesLista}
-                        onChange={() => setContratoEmMesesLista(true)}
-                      />
-                      <span>Escolher quantidade padrão</span>
-                    </label>
-                    <label className="inline-flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="tipo-contr-pre"
-                        checked={!contratoEmMesesLista}
-                        onChange={() => setContratoEmMesesLista(false)}
-                      />
-                      <span>Informar texto / prazo específico</span>
-                    </label>
-                  </div>
-                  {contratoEmMesesLista ? (
-                    <select
-                      value={mesesContrato}
-                      onChange={(e) =>
-                        setMesesContrato(Number(e.target.value) as 6 | 12 | 18 | 24)}
-                      className={SELECT_FIELD}
-                    >
-                      <option value={6}>6 meses</option>
-                      <option value={12}>12 meses</option>
-                      <option value={18}>18 meses</option>
-                      <option value={24}>24 meses</option>
-                    </select>
+                  <label htmlFor="template-contrato-pre" className="block text-sm font-medium text-zinc-700">
+                    Modelo de contrato
+                  </label>
+                  {contratoTemplates.length === 0 ? (
+                    <p className="text-sm text-amber-700 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      Nenhum modelo cadastrado. Crie modelos em{" "}
+                      <a href="/contratos" className="font-medium underline">
+                        Contratos
+                      </a>{" "}
+                      antes de registrar o pré-aluno.
+                    </p>
                   ) : (
-                    <Input
-                      label="Descrição da duração (ex.: 15 meses, trimestral…)"
-                      value={contratoTextoManual}
-                      onChange={(e) => setContratoTextoManual(e.target.value)}
-                      placeholder='Ex.: "15 meses" ou texto combinado'
-                    />
+                    <>
+                      <select
+                        id="template-contrato-pre"
+                        value={templateContratoId === "" ? "" : String(templateContratoId)}
+                        onChange={(e) =>
+                          setTemplateContratoId(e.target.value ? Number(e.target.value) : "")}
+                        className={SELECT_FIELD}
+                      >
+                        <option value="">Selecione o modelo…</option>
+                        {contratoTemplates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.nome}
+                            {t.ativo ? " (ativo)" : ""}
+                            {` · v${t.versao}`}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-zinc-500">
+                        O nome do modelo será salvo na ficha do pré-aluno e usado na geração do contrato.
+                      </p>
+                    </>
                   )}
                 </div>
                 <Input

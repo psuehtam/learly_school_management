@@ -3,6 +3,7 @@ using Learly.Application.Services.Alunos;
 using Learly.Application.Services.Aulas;
 using Learly.Application.Services.Calendario;
 using Learly.Application.Services.Compromissos;
+using Learly.Application.Services.Contratos;
 using Learly.Application.Services.Escolas;
 using Learly.Application.Services.HorariosFuncionamento;
 using Learly.Application.Services.Livros;
@@ -40,6 +41,7 @@ public static class DependencyInjection
 
         services.AddScoped<IUsuariosService, UsuariosService>();
         services.AddScoped<ITemplatesAdminService, TemplatesAdminService>();
+        services.AddScoped<IContratosService, ContratosService>();
 
         return services;
     }

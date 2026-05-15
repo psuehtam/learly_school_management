@@ -130,35 +130,50 @@ export interface CriarPreAlunoPayload {
 
 
 
-export interface Contrato {
-
+export interface ContratoGerado {
   id: number;
-
   preAlunoId: number;
-
   templateId: number;
-
-  conteudo: string;
-
-  status: "Gerado" | "Assinado" | "Cancelado";
-
-  dataCriacao: string;
-
+  nomeTemplate: string;
+  conteudoGeradoHtml: string;
+  dataGeracao: string;
 }
 
-
-
 export interface ContratoTemplate {
-
   id: number;
-
-  escolaId: number;
-
   nome: string;
+  versao: number;
+  ativo: boolean;
+  dataCriacao: string;
+  conteudoHtml: string;
+}
 
-  conteudo: string;
+export interface ContratoVariavel {
+  variavel: string;
+  descricao: string;
+}
 
-  status: "Ativo" | "Inativo";
+export interface CriarContratoTemplatePayload {
+  nome: string;
+  conteudoHtml: string;
+  ativarImediatamente: boolean;
+}
 
+export interface EditarContratoTemplatePayload {
+  nome: string;
+  conteudoHtml: string;
+}
+
+export interface GerarContratoPayload {
+  preAlunoId: number;
+  templateId?: number | null;
+}
+
+export interface ContratoGeradoData {
+  id: number;
+  templateId: number;
+  nomeTemplate: string;
+  conteudoGeradoHtml: string;
+  dataGeracao: string;
 }
 

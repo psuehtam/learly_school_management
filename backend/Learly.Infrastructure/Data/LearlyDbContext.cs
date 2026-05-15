@@ -28,6 +28,9 @@ public class LearlyDbContext : DbContext
     public DbSet<Responsavel> Responsaveis => Set<Responsavel>();
     public DbSet<PreAluno> PreAlunos => Set<PreAluno>();
 
+    public DbSet<ContratoTemplate> ContratosTemplates => Set<ContratoTemplate>();
+    public DbSet<ContratoGerado> ContratosGerados => Set<ContratoGerado>();
+
     public DbSet<CalendarioGeral> CalendariosGerais => Set<CalendarioGeral>();
     public DbSet<Compromisso> Compromissos => Set<Compromisso>();
     public DbSet<CompromissoParticipante> CompromissosParticipantes => Set<CompromissoParticipante>();

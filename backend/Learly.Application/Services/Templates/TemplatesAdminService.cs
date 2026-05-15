@@ -104,11 +104,21 @@ public sealed class TemplatesAdminService : ITemplatesAdminService
             .Distinct()
             .ToList();
 
+        // Busca o nome antes da transação para usá-lo na propagação
+        var nomePerfilTemplate = await _templates.ObterNomePerfilTemplateAsync(perfilTemplateIdDaRota, cancellationToken);
+
         await _unitOfWork.ExecuteInTransactionAsync(
             async () =>
             {
+                // 1. Atualiza o template (fonte de verdade do Super Admin)
                 await _templates.SubstituirVinculosPermissoesAsync(perfilTemplateIdDaRota, ids, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+                // 2. Propaga para TODAS as escolas existentes que tenham um perfil com o mesmo nome
+                if (!string.IsNullOrWhiteSpace(nomePerfilTemplate))
+                {
+                    await _templates.PropagateToAllEscolasAsync(nomePerfilTemplate, ids, cancellationToken);
+                }
             },
             cancellationToken);
 
