@@ -21,6 +21,7 @@ import {
 } from "@/lib/agenda";
 import { AgendaOcupacaoCard } from "@/components/escola/agenda-ocupacao-card";
 import { AgendaOcupacaoDetalheModal } from "@/components/escola/agenda-ocupacao-detalhe-modal";
+import { AgendaForaExpedienteFaixas } from "@/components/escola/agenda-fora-expediente-faixas";
 
 interface UsuarioAgenda {
   id: number;
@@ -307,20 +308,9 @@ export default function AgendaGlobalPage() {
                     </span>
                   </div>
                   <div className="relative pt-12">
-                    {!eventoHoje &&
-                      !escolaFechadaDiaInteiro &&
-                      faixasForaExpediente.map((faixa, fi) => (
-                        <div
-                          key={`fora-${fi}-${usuario.id}`}
-                          className="absolute left-1 right-1 z-[2] flex items-center justify-center rounded-md border border-amber-300/90 bg-amber-100/90 px-1 py-0.5 pointer-events-none shadow-sm"
-                          style={{ top: faixa.topPx, height: faixa.heightPx, minHeight: 8 }}
-                          title="Fora do horário de funcionamento da escola — sem aula neste período"
-                        >
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-amber-950 text-center leading-tight">
-                            Sem aula · Fora do horário
-                          </span>
-                        </div>
-                      ))}
+                    {!eventoHoje && !escolaFechadaDiaInteiro && (
+                      <AgendaForaExpedienteFaixas faixas={faixasForaExpediente} />
+                    )}
                     {posicionados.map(({ item, topPx, alturaExibicaoPx }) => {
                       const temDestaque = verificaDestaque(item);
                       const fh = faixas.get(item.id) ?? { indice: 0, total: 1 };

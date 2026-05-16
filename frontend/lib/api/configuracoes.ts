@@ -28,6 +28,11 @@ export async function listarHorariosFuncionamentoConsultaCompromissos(): Promise
   return apiRequest<HorarioFuncionamentoDto[]>("/api/horarios-funcionamento/consulta-compromissos");
 }
 
+/** Leitura da grade para validar horários ao criar/editar/ativar turmas. */
+export async function listarHorariosFuncionamentoConsultaTurmas(): Promise<HorarioFuncionamentoDto[]> {
+  return apiRequest<HorarioFuncionamentoDto[]>("/api/horarios-funcionamento/consulta-turmas");
+}
+
 export async function atualizarHorariosFuncionamento(
   payload: AtualizarHorariosPayload,
 ): Promise<HorarioFuncionamentoDto[]> {

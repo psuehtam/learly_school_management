@@ -99,7 +99,7 @@ export const SCHOOL_MENU: MenuEntry[] = [
       {
         type: "item",
         key: "professor",
-        label: "Minhas Aulas",
+        label: "Minha Agenda",
         href: "/professor",
         icon: <IconCalendar />,
         permission: "VISUALIZAR_AULA",
@@ -158,7 +158,7 @@ export const SCHOOL_MENU: MenuEntry[] = [
         label: "Calendário",
         href: "/calendario",
         icon: <IconCalendar />,
-        permission: "VISUALIZAR_CALENDARIO",
+        permission: "GERENCIAR_CALENDARIO",
       },
       {
         type: "item",

@@ -9,7 +9,7 @@ using MapsterMapper;
 
 namespace Learly.Application.Services.Aulas;
 
-public sealed class AulasService : IAulasService
+public sealed partial class AulasService : IAulasService
 {
     private static readonly HashSet<string> StatusValidos = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -23,6 +23,9 @@ public sealed class AulasService : IAulasService
     private readonly ICalendarioGeralRepository _calendario;
     private readonly ITurmaRepository _turmas;
     private readonly IUsuarioRepository _usuarios;
+    private readonly IPresencaRepository _presencas;
+    private readonly IHomeworkRepository _homeworks;
+    private readonly IMatriculaRepository _matriculas;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
 
@@ -32,6 +35,9 @@ public sealed class AulasService : IAulasService
         ICalendarioGeralRepository calendario,
         ITurmaRepository turmas,
         IUsuarioRepository usuarios,
+        IPresencaRepository presencas,
+        IHomeworkRepository homeworks,
+        IMatriculaRepository matriculas,
         IUnitOfWork unitOfWork,
         IMapper mapper)
     {
@@ -40,6 +46,9 @@ public sealed class AulasService : IAulasService
         _calendario = calendario;
         _turmas = turmas;
         _usuarios = usuarios;
+        _presencas = presencas;
+        _homeworks = homeworks;
+        _matriculas = matriculas;
         _unitOfWork = unitOfWork;
         _mapper = mapper;
     }

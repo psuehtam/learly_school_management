@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IUsuarioRepository, UsuarioRepository>();
         services.AddScoped<IAulaRepository, AulaRepository>();
         services.AddScoped<IAlunoRepository, AlunoRepository>();
+        services.AddScoped<IAlunoPerfilRepository, AlunoPerfilRepository>();
         services.AddScoped<ICalendarioGeralRepository, CalendarioGeralRepository>();
         services.AddScoped<ICompromissoRepository, CompromissoRepository>();
         services.AddScoped<ITurmaRepository, TurmaRepository>();
@@ -50,6 +51,10 @@ public static class DependencyInjection
         services.AddScoped<ITemplatePermissoesRepository, TemplatePermissoesRepository>();
         services.AddScoped<IContratoTemplateRepository, ContratoTemplateRepository>();
         services.AddScoped<IContratoGeradoRepository, ContratoGeradoRepository>();
+        services.AddScoped<IPresencaRepository, PresencaRepository>();
+        services.AddScoped<IHomeworkRepository, HomeworkRepository>();
+        services.AddScoped<IAvaliacaoRepository, AvaliacaoRepository>();
+        services.AddScoped<IDashboardRepository, DashboardRepository>();
 
         return services;
     }

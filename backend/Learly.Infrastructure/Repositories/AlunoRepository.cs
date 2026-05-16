@@ -2,6 +2,7 @@ using System.Data;
 using System.Data.Common;
 using Learly.Domain.Entities;
 using Learly.Domain.Interfaces.Repositories;
+using Learly.Domain.ReadModels;
 using Learly.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -10,9 +11,110 @@ namespace Learly.Infrastructure.Repositories;
 
 internal sealed class AlunoRepository(LearlyDbContext db) : RepositoryBase<Aluno, int>(db), IAlunoRepository
 {
+    public async Task<IReadOnlyList<AlunoListagemItem>> ListarPorEscolaAsync(
+        int escolaId,
+        string? status,
+        string? busca,
+        int limite,
+        CancellationToken cancellationToken = default)
+    {
+        var query = Db.Alunos.AsNoTracking().Where(a => a.EscolaId == escolaId);
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query = query.Where(a => a.Status == status.Trim());
+        }
+
+        var termo = busca?.Trim();
+        if (!string.IsNullOrWhiteSpace(termo))
+        {
+            var lower = termo.ToLower();
+            var digitos = new string(termo.Where(char.IsDigit).ToArray());
+            if (digitos.Length >= 3)
+            {
+                query = query.Where(a =>
+                    a.Nome.ToLower().Contains(lower)
+                    || a.Sobrenome.ToLower().Contains(lower)
+                    || (a.Cpf != null && a.Cpf.Contains(digitos)));
+            }
+            else
+            {
+                query = query.Where(a =>
+                    a.Nome.ToLower().Contains(lower)
+                    || a.Sobrenome.ToLower().Contains(lower));
+            }
+        }
+
+        var take = limite is > 0 and <= 200 ? limite : 80;
+        var rows = await query
+            .OrderBy(a => a.Nome)
+            .ThenBy(a => a.Sobrenome)
+            .Take(take)
+            .Select(a => new AlunoListagemItem(
+                a.Id,
+                a.EscolaId,
+                a.Nome,
+                a.Sobrenome,
+                a.Cpf,
+                a.Status))
+            .ToListAsync(cancellationToken);
+
+        return rows;
+    }
+
     public Task<Aluno?> ObterPorIdEEscolaAsync(int alunoId, int escolaId, CancellationToken cancellationToken = default)
     {
         return Db.Alunos.AsNoTracking().FirstOrDefaultAsync(a => a.Id == alunoId && a.EscolaId == escolaId, cancellationToken);
+    }
+
+    public Task<Responsavel?> ObterResponsavelPorIdEEscolaAsync(
+        int responsavelId,
+        int escolaId,
+        CancellationToken cancellationToken = default)
+    {
+        return Db.Responsaveis.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == responsavelId && r.EscolaId == escolaId, cancellationToken);
+    }
+
+    public async Task<string?> ObterTelefonePrincipalAsync(
+        int escolaId,
+        string entidade,
+        int entidadeId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT numero FROM contatos_telefone
+            WHERE escola_id = @escolaId AND entidade = @entidade AND entidade_id = @entidadeId
+            ORDER BY principal DESC, id ASC
+            LIMIT 1
+            """;
+
+        var connection = Db.Database.GetDbConnection();
+        var shouldClose = connection.State == ConnectionState.Closed;
+
+        if (shouldClose)
+            await connection.OpenAsync(cancellationToken);
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            SetCurrentTransaction(command);
+            AddParameter(command, "@escolaId", escolaId);
+            AddParameter(command, "@entidade", entidade);
+            AddParameter(command, "@entidadeId", entidadeId);
+
+            var scalar = await command.ExecuteScalarAsync(cancellationToken);
+            if (scalar is null || scalar == DBNull.Value)
+                return null;
+
+            return Convert.ToString(scalar);
+        }
+        finally
+        {
+            if (shouldClose)
+                await connection.CloseAsync();
+        }
     }
 
     public Task<bool> ExisteCpfNaEscolaAsync(int escolaId, string cpf, CancellationToken cancellationToken = default)

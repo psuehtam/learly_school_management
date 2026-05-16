@@ -26,10 +26,13 @@ export interface Turma {
   id: number;
   escolaId: number;
   professorId: number;
+  professorNome?: string | null;
   livroId: number;
+  livroNome?: string | null;
   nome: string;
   sala?: string;
-  horario?: string;
+  horarioInicio?: string | null;
+  horarioFim?: string | null;
   dataInicio?: string;
   dataTerminoPrevista?: string;
   observacoes?: string;
@@ -37,7 +40,29 @@ export interface Turma {
   professor?: Usuario;
   livro?: Livro;
   diasSemana?: number[];
+  totalAlunosAtivos?: number;
+  totalAulasPrevistasLivro?: number;
 }
+
+export type CriarTurmaPayload = {
+  professorId: number;
+  livroId: number;
+  sala?: string;
+  observacoes?: string;
+  diasSemana?: number[];
+  horarioInicio?: string;
+  horarioFim?: string;
+};
+
+export type AtualizarTurmaPayload = {
+  professorId?: number;
+  livroId?: number;
+  sala?: string;
+  observacoes?: string;
+  diasSemana?: number[];
+  horarioInicio?: string;
+  horarioFim?: string;
+};
 
 export interface Matricula {
   id: number;

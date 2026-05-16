@@ -1,10 +1,30 @@
 using Learly.Domain.Entities;
+using Learly.Domain.ReadModels;
 
 namespace Learly.Domain.Interfaces.Repositories;
 
 public interface IAlunoRepository : IRepository<Aluno, int>
 {
+    Task<IReadOnlyList<AlunoListagemItem>> ListarPorEscolaAsync(
+        int escolaId,
+        string? status,
+        string? busca,
+        int limite,
+        CancellationToken cancellationToken = default);
+
     Task<Aluno?> ObterPorIdEEscolaAsync(int alunoId, int escolaId, CancellationToken cancellationToken = default);
+
+    Task<string?> ObterTelefonePrincipalAsync(
+        int escolaId,
+        string entidade,
+        int entidadeId,
+        CancellationToken cancellationToken = default);
+
+    Task<Responsavel?> ObterResponsavelPorIdEEscolaAsync(
+        int responsavelId,
+        int escolaId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ExisteCpfNaEscolaAsync(int escolaId, string cpf, CancellationToken cancellationToken = default);
     Task<bool> ExisteResponsavelNaEscolaAsync(int escolaId, int responsavelId, CancellationToken cancellationToken = default);
     Task<int?> ObterResponsavelIdPorCpfAsync(int escolaId, string cpfCnpj, CancellationToken cancellationToken = default);

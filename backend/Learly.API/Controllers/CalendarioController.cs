@@ -23,8 +23,9 @@ public sealed class CalendarioController : ControllerBase
         _calendarioService = calendarioService;
     }
 
+    /// <summary>Leitura de feriados/recessos (ex.: grade Minha Agenda).</summary>
     [HttpGet]
-    [RequirePermission("VISUALIZAR_CALENDARIO")]
+    [RequirePermission("VISUALIZAR_CALENDARIO", "VISUALIZAR_AULA")]
     public async Task<ActionResult<IReadOnlyList<EventoCalendarioResponse>>> ListarPorMes(
         [FromQuery] int mes,
         [FromQuery] int ano,

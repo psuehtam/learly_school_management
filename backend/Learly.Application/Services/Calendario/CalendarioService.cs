@@ -1,11 +1,13 @@
 using Learly.Application.Contracts.Calendario.Requests;
 using Learly.Application.Contracts.Calendario.Responses;
 using Learly.Application.Services.Common;
+using Learly.Application.Services.Turmas;
 using Learly.Domain.Entities;
 using Learly.Domain.Exceptions;
 using Learly.Domain.Interfaces.Persistence;
 using Learly.Domain.Interfaces.Repositories;
 using MapsterMapper;
+using Microsoft.Extensions.Logging;
 
 namespace Learly.Application.Services.Calendario;
 
@@ -14,21 +16,27 @@ public sealed class CalendarioService : ICalendarioService
     private readonly ICalendarioGeralRepository _calendario;
     private readonly ICompromissoRepository _compromissos;
     private readonly IEscolaRepository _escolas;
+    private readonly ITurmasService _turmas;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
+    private readonly ILogger<CalendarioService> _logger;
 
     public CalendarioService(
         ICalendarioGeralRepository calendario,
         ICompromissoRepository compromissos,
         IEscolaRepository escolas,
+        ITurmasService turmas,
         IUnitOfWork unitOfWork,
-        IMapper mapper)
+        IMapper mapper,
+        ILogger<CalendarioService> logger)
     {
         _calendario = calendario;
         _compromissos = compromissos;
         _escolas = escolas;
+        _turmas = turmas;
         _unitOfWork = unitOfWork;
         _mapper = mapper;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<EventoCalendarioResponse>> ListarPorMesAsync(
@@ -98,7 +106,9 @@ public sealed class CalendarioService : ICalendarioService
         _calendario.Adicionar(entidade);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return (true, _mapper.Map<EventoCalendarioResponse>(entidade), null, 201);
+        await RecalcularTurmasSeNecessarioAsync(escolaId.Value, entidade.SuspendeAula, cancellationToken);
+
+        return (true, MapEvento(entidade), null, 201);
     }
 
     public async Task<(bool Success, EventoCalendarioResponse? Evento, string? Error, int StatusCode)> EditarAsync(
@@ -150,7 +160,10 @@ public sealed class CalendarioService : ICalendarioService
         entidade.SuspendeAula = CalendarioGeral.TipoSuspendeAula(tipoEvento);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return (true, _mapper.Map<EventoCalendarioResponse>(entidade), null, 200);
+
+        await RecalcularTurmasSeNecessarioAsync(escolaId.Value, entidade.SuspendeAula, cancellationToken);
+
+        return (true, MapEvento(entidade), null, 200);
     }
 
     public async Task<(bool Success, string? Error, int StatusCode)> ExcluirAsync(
@@ -166,10 +179,47 @@ public sealed class CalendarioService : ICalendarioService
         if (entidade is null)
             return (false, "Evento nao encontrado.", 404);
 
+        var suspendia = entidade.SuspendeAula;
         _calendario.Remover(entidade);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await RecalcularTurmasSeNecessarioAsync(escolaId.Value, suspendia, cancellationToken);
+
         return (true, null, 204);
     }
+
+    private async Task RecalcularTurmasSeNecessarioAsync(
+        int escolaId,
+        bool deveRecalcular,
+        CancellationToken cancellationToken)
+    {
+        if (!deveRecalcular)
+        {
+            return;
+        }
+
+        try
+        {
+            await _turmas.RecalcularTurmasEmAndamentoDaEscolaAsync(escolaId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Calendario salvo, mas falhou o recalculo de turmas em andamento da escola {EscolaId}",
+                escolaId);
+        }
+    }
+
+    private static EventoCalendarioResponse MapEvento(CalendarioGeral entidade) =>
+        new()
+        {
+            Id = entidade.Id,
+            DataEvento = entidade.DataEvento,
+            TipoEvento = entidade.TipoEvento,
+            Descricao = entidade.Descricao,
+            SuspendeAula = entidade.SuspendeAula,
+        };
 
     /// <summary>Sem aula, feriado e recesso: só a partir de amanhã; não pode haver compromisso ativo no dia.</summary>
     private async Task<(string? Error, int StatusCode)> ValidarDataEventoSuspensivoAsync(

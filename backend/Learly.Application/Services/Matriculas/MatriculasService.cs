@@ -60,6 +60,11 @@ public sealed class MatriculasService : IMatriculasService
             return new MatriculaListagemResultado(false, [], "TurmaId invalido.", MatriculaListagemFalha.Validacao);
         }
 
+        if (EhProfessor(uc) && !filtro.TurmaId.HasValue)
+        {
+            return new MatriculaListagemResultado(false, [], "Informe a turma.", MatriculaListagemFalha.Validacao);
+        }
+
         string? statusNormalizado = null;
         if (!string.IsNullOrWhiteSpace(filtro.Status))
         {
@@ -75,6 +80,11 @@ public sealed class MatriculasService : IMatriculasService
         {
             var turma = await _turmas.ObterPorIdEEscolaAsync(filtro.TurmaId.Value, escolaId.Value, cancellationToken);
             if (turma is null)
+            {
+                return new MatriculaListagemResultado(false, [], "Turma nao encontrada nesta escola.", MatriculaListagemFalha.Validacao);
+            }
+
+            if (EhProfessor(uc) && turma.ProfessorId != uc.UserId)
             {
                 return new MatriculaListagemResultado(false, [], "Turma nao encontrada nesta escola.", MatriculaListagemFalha.Validacao);
             }
@@ -98,6 +108,17 @@ public sealed class MatriculasService : IMatriculasService
 
         // Mapeamento explicito (Mapster com record + init-only pode omitir AlunoNomeCompleto na serializacao).
         var itens = entidades.Select(MapListItem).ToList();
+
+        if (string.Equals(statusNormalizado, Matricula.Estados.EmEspera, StringComparison.Ordinal))
+        {
+            var alunosJaEnturmados = await _matriculas.ListarAlunoIdsComMatriculaAtivaEmTurmaAsync(
+                escolaId.Value,
+                cancellationToken);
+            itens = itens
+                .Where(m => m.TurmaId is null && !alunosJaEnturmados.Contains(m.AlunoId))
+                .ToList();
+        }
+
         return new MatriculaListagemResultado(true, itens, null, MatriculaListagemFalha.Nenhuma);
     }
 
@@ -135,6 +156,16 @@ public sealed class MatriculasService : IMatriculasService
             {
                 return new MatriculaCriacaoResultado(false, null, "Turma nao encontrada nesta escola.", MatriculaCriacaoFalha.Validacao);
             }
+
+            var msgTurmaUnica = await ValidarUnicaTurmaAtivaAsync(
+                escolaId.Value,
+                request.AlunoId,
+                ignorarMatriculaId: null,
+                cancellationToken);
+            if (msgTurmaUnica is not null)
+            {
+                return new MatriculaCriacaoResultado(false, null, msgTurmaUnica, MatriculaCriacaoFalha.Conflito);
+            }
         }
 
         var existeDuplicidade = await _matriculas.ExisteDuplicidadeAsync(
@@ -150,6 +181,16 @@ public sealed class MatriculasService : IMatriculasService
 
         if (!request.TurmaId.HasValue)
         {
+            var msgTurmaUnicaEspera = await ValidarUnicaTurmaAtivaAsync(
+                escolaId.Value,
+                request.AlunoId,
+                ignorarMatriculaId: null,
+                cancellationToken);
+            if (msgTurmaUnicaEspera is not null)
+            {
+                return new MatriculaCriacaoResultado(false, null, msgTurmaUnicaEspera, MatriculaCriacaoFalha.Conflito);
+            }
+
             var jaTemEmEspera = await _matriculas.ExisteMatriculaEmEsperaSemTurmaAsync(
                 escolaId.Value,
                 request.AlunoId,
@@ -158,6 +199,33 @@ public sealed class MatriculasService : IMatriculasService
             if (jaTemEmEspera)
             {
                 return new MatriculaCriacaoResultado(false, null, "Aluno ja possui matricula em espera sem turma definida.", MatriculaCriacaoFalha.Conflito);
+            }
+        }
+        else
+        {
+            var emEspera = await _matriculas.ObterEmEsperaSemTurmaRastreadaAsync(
+                escolaId.Value,
+                request.AlunoId,
+                cancellationToken);
+
+            if (emEspera is not null)
+            {
+                var msgTurmaUnicaEspera = await ValidarUnicaTurmaAtivaAsync(
+                    escolaId.Value,
+                    request.AlunoId,
+                    ignorarMatriculaId: emEspera.Id,
+                    cancellationToken);
+                if (msgTurmaUnicaEspera is not null)
+                {
+                    return new MatriculaCriacaoResultado(false, null, msgTurmaUnicaEspera, MatriculaCriacaoFalha.Conflito);
+                }
+
+                emEspera.TurmaId = request.TurmaId;
+                emEspera.Status = Matricula.Estados.Ativo;
+                emEspera.DataMatricula = request.DataMatricula;
+                emEspera.DataAtualizacao = DateTime.UtcNow;
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return new MatriculaCriacaoResultado(true, emEspera.Id, null, MatriculaCriacaoFalha.Nenhuma);
             }
         }
 
@@ -204,6 +272,15 @@ public sealed class MatriculasService : IMatriculasService
         if (string.Equals(matricula.Status, Matricula.Estados.Cancelado, StringComparison.OrdinalIgnoreCase))
         {
             return new MatriculaOperacaoResultado(false, "Matricula ja esta cancelada.", 409);
+        }
+
+        if (matricula.TurmaId.HasValue
+            && string.Equals(matricula.Status, Matricula.Estados.Ativo, StringComparison.OrdinalIgnoreCase))
+        {
+            return new MatriculaOperacaoResultado(
+                false,
+                "Para retirar o aluno desta turma, use a acao Remover da turma. O aluno permanece ativo na escola.",
+                409);
         }
 
         if (!StatusCancelaveis.Contains(matricula.Status))
@@ -268,12 +345,81 @@ public sealed class MatriculasService : IMatriculasService
             return new MatriculaOperacaoResultado(false, "Aluno ja possui matricula nessa turma.", 409);
         }
 
+        var msgTurmaUnica = await ValidarUnicaTurmaAtivaAsync(
+            escolaId.Value,
+            matricula.AlunoId,
+            ignorarMatriculaId: matriculaId,
+            cancellationToken);
+        if (msgTurmaUnica is not null)
+        {
+            return new MatriculaOperacaoResultado(false, msgTurmaUnica, 409);
+        }
+
         matricula.TurmaId = request.TurmaId;
         matricula.Status = Matricula.Estados.Ativo;
         matricula.DataAtualizacao = DateTime.UtcNow;
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new MatriculaOperacaoResultado(true, null, 204);
+    }
+
+    public async Task<MatriculaOperacaoResultado> RemoverDaTurmaAsync(
+        int id,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default)
+    {
+        if (id <= 0)
+        {
+            return new MatriculaOperacaoResultado(false, "Id de matricula invalido.", 400);
+        }
+
+        var escolaId = await ObterIdEscolaAtivaPorCodigoAsync(uc.CodigoEscola, cancellationToken);
+        if (!escolaId.HasValue)
+        {
+            return new MatriculaOperacaoResultado(false, "Acesso negado.", 403);
+        }
+
+        var matricula = await _matriculas.ObterRastreadaPorIdEEscolaAsync(id, escolaId.Value, cancellationToken);
+        if (matricula is null)
+        {
+            return new MatriculaOperacaoResultado(false, "Matricula nao encontrada.", 404);
+        }
+
+        if (!matricula.TurmaId.HasValue)
+        {
+            return new MatriculaOperacaoResultado(false, "Esta matricula nao esta vinculada a uma turma.", 409);
+        }
+
+        if (!string.Equals(matricula.Status, Matricula.Estados.Ativo, StringComparison.OrdinalIgnoreCase))
+        {
+            return new MatriculaOperacaoResultado(false, "Somente alunos ativos na turma podem ser removidos.", 409);
+        }
+
+        matricula.Status = Matricula.Estados.Cancelado;
+        matricula.DataAtualizacao = DateTime.UtcNow;
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return new MatriculaOperacaoResultado(true, null, 204);
+    }
+
+    private async Task<string?> ValidarUnicaTurmaAtivaAsync(
+        int escolaId,
+        int alunoId,
+        int? ignorarMatriculaId,
+        CancellationToken cancellationToken)
+    {
+        var outra = await _matriculas.ObterOutraTurmaAtivaDoAlunoAsync(
+            escolaId,
+            alunoId,
+            ignorarMatriculaId,
+            cancellationToken);
+
+        if (outra is null)
+        {
+            return null;
+        }
+
+        return
+            $"O aluno ja esta matriculado na turma \"{outra.TurmaNome}\". Cada aluno pode participar de apenas uma turma por vez.";
     }
 
     private static MatriculaListItemResponse MapListItem(MatriculaListagemItem m) =>
@@ -300,4 +446,7 @@ public sealed class MatriculasService : IMatriculasService
 
         return _escolas.ObterIdAtivaPorCodigoEscolaAsync(codigoEscola, cancellationToken);
     }
+
+    private static bool EhProfessor(AppUserContext uc) =>
+        string.Equals(uc.Perfil, "Professor", StringComparison.OrdinalIgnoreCase);
 }

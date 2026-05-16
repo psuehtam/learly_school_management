@@ -38,7 +38,8 @@ internal sealed class MatriculaRepository(LearlyDbContext db) : RepositoryBase<M
         return Db.Matriculas.AsNoTracking().AnyAsync(
             m => m.EscolaId == escolaId
                  && m.AlunoId == alunoId
-                 && m.TurmaId == turmaId,
+                 && m.TurmaId == turmaId
+                 && (m.Status == Matricula.Estados.Ativo || m.Status == Matricula.Estados.EmEspera),
             cancellationToken);
     }
 
@@ -50,6 +51,77 @@ internal sealed class MatriculaRepository(LearlyDbContext db) : RepositoryBase<M
                  && m.TurmaId == null
                  && m.Status == Matricula.Estados.EmEspera,
             cancellationToken);
+    }
+
+    public Task<Matricula?> ObterEmEsperaSemTurmaRastreadaAsync(
+        int escolaId,
+        int alunoId,
+        CancellationToken cancellationToken = default)
+    {
+        return Db.Matriculas.FirstOrDefaultAsync(
+            m => m.EscolaId == escolaId
+                 && m.AlunoId == alunoId
+                 && m.TurmaId == null
+                 && m.Status == Matricula.Estados.EmEspera,
+            cancellationToken);
+    }
+
+    public async Task<HashSet<int>> ListarAlunoIdsComMatriculaAtivaEmTurmaAsync(
+        int escolaId,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = await Db.Matriculas.AsNoTracking()
+            .Where(m => m.EscolaId == escolaId
+                        && m.Status == Matricula.Estados.Ativo
+                        && m.TurmaId != null)
+            .Select(m => m.AlunoId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return ids.ToHashSet();
+    }
+
+    public async Task<MatriculaTurmaAtivaInfo?> ObterOutraTurmaAtivaDoAlunoAsync(
+        int escolaId,
+        int alunoId,
+        int? ignorarMatriculaId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query =
+            from m in Db.Matriculas.AsNoTracking()
+            join t in Db.Turmas.AsNoTracking() on m.TurmaId equals t.Id
+            where m.EscolaId == escolaId
+                  && m.AlunoId == alunoId
+                  && m.Status == Matricula.Estados.Ativo
+                  && m.TurmaId != null
+                  && (t.Status == Turma.Estados.EmAndamento || t.Status == Turma.Estados.EmEspera)
+                  && (ignorarMatriculaId == null || m.Id != ignorarMatriculaId)
+            select new MatriculaTurmaAtivaInfo(m.Id, t.Id, t.Nome);
+
+        return await query.FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<int> EncerrarMatriculasAtivasDaTurmaAsync(
+        int escolaId,
+        int turmaId,
+        string novoStatus,
+        CancellationToken cancellationToken = default)
+    {
+        var statusNorm = Matricula.Estados.Normalize(novoStatus);
+        var agora = DateTime.UtcNow;
+        var matriculas = await Db.Matriculas
+            .Where(m => m.EscolaId == escolaId
+                        && m.TurmaId == turmaId
+                        && m.Status == Matricula.Estados.Ativo)
+            .ToListAsync(cancellationToken);
+
+        foreach (var m in matriculas)
+        {
+            m.Status = statusNorm;
+            m.DataAtualizacao = agora;
+        }
+
+        return matriculas.Count;
     }
 
     public async Task<IReadOnlyList<MatriculaListagemItem>> ListarPorEscolaComFiltrosAsync(

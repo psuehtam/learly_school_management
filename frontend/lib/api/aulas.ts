@@ -3,9 +3,43 @@ import type { Aula, Presenca, Homework, Avaliacao } from "@/types/aula";
 
 export type { Aula, Presenca, Homework, Avaliacao } from "@/types/aula";
 
+function normalizarAula(raw: Aula & Record<string, unknown>): Aula {
+  const r = raw as Aula & {
+    DataAula?: string;
+    HorarioInicio?: string;
+    HorarioFim?: string;
+    TurmaNome?: string;
+    LivroNome?: string;
+    TipoAula?: string;
+    Status?: string;
+    ProfessorId?: number;
+    TurmaId?: number;
+    NumeroAula?: number;
+  };
+  return {
+    ...raw,
+    turmaId: raw.turmaId ?? r.TurmaId ?? 0,
+    professorId: raw.professorId ?? r.ProfessorId ?? 0,
+    numeroAula: raw.numeroAula ?? r.NumeroAula ?? 0,
+    dataAula: (raw.dataAula ?? r.DataAula ?? "").toString().slice(0, 10),
+    horarioInicio: String(raw.horarioInicio ?? r.HorarioInicio ?? "").slice(0, 5),
+    horarioFim: String(raw.horarioFim ?? r.HorarioFim ?? "").slice(0, 5),
+    tipoAula: (raw.tipoAula ?? r.TipoAula ?? "Normal") as Aula["tipoAula"],
+    status: (raw.status ?? r.Status ?? "Agendada") as Aula["status"],
+    turmaNome: raw.turmaNome ?? r.TurmaNome,
+    livroNome: raw.livroNome ?? r.LivroNome,
+    reposicaoAlunoNome: raw.reposicaoAlunoNome ?? (r as { ReposicaoAlunoNome?: string }).ReposicaoAlunoNome,
+    reposicaoAulaOriginalNumero:
+      raw.reposicaoAulaOriginalNumero ?? (r as { ReposicaoAulaOriginalNumero?: number }).ReposicaoAulaOriginalNumero,
+    reposicaoAulaOriginalData:
+      raw.reposicaoAulaOriginalData ?? (r as { ReposicaoAulaOriginalData?: string }).ReposicaoAulaOriginalData,
+  };
+}
+
 export async function listarAulas(filtros?: Record<string, string>): Promise<Aula[]> {
   const params = filtros ? `?${new URLSearchParams(filtros)}` : "";
-  return apiRequest<Aula[]>(`/api/aulas${params}`);
+  const data = await apiRequest<Aula[]>(`/api/aulas${params}`);
+  return data.map((a) => normalizarAula(a as Aula & Record<string, unknown>));
 }
 
 export async function buscarAula(id: number): Promise<Aula> {

@@ -73,4 +73,50 @@ public sealed class AulasController : ControllerBase
         var resultado = await _aulasService.CancelarAsync(id, uc, cancellationToken);
         return resultado.ToActionResult(this, "Falha ao cancelar aula.");
     }
+
+    [HttpGet("{id:int}/presencas")]
+    [RequirePermission("VISUALIZAR_AULA")]
+    public async Task<ActionResult<IReadOnlyList<PresencaResponse>>> ListarPresencas(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
+        var lista = await _aulasService.ListarPresencasAsync(id, uc, cancellationToken);
+        return Ok(lista);
+    }
+
+    [HttpPost("{id:int}/chamada")]
+    [RequirePermission("VISUALIZAR_AULA")]
+    public async Task<IActionResult> RegistrarChamada(
+        int id,
+        [FromBody] RegistrarChamadaRequest body,
+        CancellationToken cancellationToken)
+    {
+        var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
+        var resultado = await _aulasService.RegistrarChamadaAsync(id, body, uc, cancellationToken);
+        return resultado.ToActionResult(this, "Falha ao registrar chamada.");
+    }
+
+    [HttpGet("{id:int}/homework")]
+    [RequirePermission("VISUALIZAR_AULA")]
+    public async Task<ActionResult<IReadOnlyList<HomeworkResponse>>> ListarHomework(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
+        var lista = await _aulasService.ListarHomeworkAsync(id, uc, cancellationToken);
+        return Ok(lista);
+    }
+
+    [HttpPost("{id:int}/homework")]
+    [RequirePermission("VISUALIZAR_AULA")]
+    public async Task<IActionResult> LancarHomework(
+        int id,
+        [FromBody] LancarHomeworkRequest body,
+        CancellationToken cancellationToken)
+    {
+        var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
+        var resultado = await _aulasService.LancarHomeworkAsync(id, body, uc, cancellationToken);
+        return resultado.ToActionResult(this, "Falha ao lancar homework.");
+    }
 }

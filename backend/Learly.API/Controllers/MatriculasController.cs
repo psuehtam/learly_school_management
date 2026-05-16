@@ -23,7 +23,8 @@ public sealed class MatriculasController : ControllerBase
     }
 
     [HttpGet]
-    [RequirePermission("VISUALIZAR_MATRICULA")]
+    /// <summary>Secretaria/admin: todas as matrículas. Professor: somente alunos da própria turma (filtro turmaId).</summary>
+    [RequirePermission("VISUALIZAR_MATRICULA", "VISUALIZAR_TURMA")]
     public async Task<IActionResult> Listar([FromQuery] ListarMatriculasQuery? filtro, CancellationToken cancellationToken)
     {
         var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
@@ -47,6 +48,15 @@ public sealed class MatriculasController : ControllerBase
         var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
         var resultado = await _matriculasService.CancelarAsync(id, uc, cancellationToken);
         return resultado.ToActionResult(this, "Falha ao cancelar matricula.");
+    }
+
+    [HttpPatch("{id:int}/remover-da-turma")]
+    [RequirePermission("EDITAR_MATRICULA")]
+    public async Task<IActionResult> RemoverDaTurma(int id, CancellationToken cancellationToken)
+    {
+        var uc = AppUserContextMapper.From(HttpContext.GetUserContext());
+        var resultado = await _matriculasService.RemoverDaTurmaAsync(id, uc, cancellationToken);
+        return resultado.ToActionResult(this, "Falha ao remover aluno da turma.");
     }
 
     [HttpPatch("{id:int}/vincular-turma")]

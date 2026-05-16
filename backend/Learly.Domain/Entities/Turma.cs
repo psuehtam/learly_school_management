@@ -4,6 +4,35 @@ namespace Learly.Domain.Entities;
 
 public sealed class Turma
 {
+    public static class Estados
+    {
+        public const string EmEspera = "Em Espera";
+        public const string EmAndamento = "Em Andamento";
+        public const string Concluida = "Concluida";
+        public const string Cancelada = "Cancelada";
+        public const string Inativa = "Inativa";
+
+        public static bool IsValid(string? value) =>
+            value is not null && (
+                string.Equals(value, EmEspera, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, EmAndamento, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, Concluida, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, Cancelada, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, Inativa, StringComparison.OrdinalIgnoreCase));
+
+        public static string Normalize(string value)
+        {
+            if (string.Equals(value, EmEspera, StringComparison.OrdinalIgnoreCase)) return EmEspera;
+            if (string.Equals(value, EmAndamento, StringComparison.OrdinalIgnoreCase)) return EmAndamento;
+            if (string.Equals(value, Concluida, StringComparison.OrdinalIgnoreCase)) return Concluida;
+            if (string.Equals(value, Cancelada, StringComparison.OrdinalIgnoreCase)) return Cancelada;
+            if (string.Equals(value, Inativa, StringComparison.OrdinalIgnoreCase)) return Inativa;
+            throw new DomainException("Status da turma invalido.");
+        }
+    }
+
+    public const int MinimoAlunosParaAtivar = 3;
+
     public int Id { get; internal set; }
 
     public int EscolaId { get; internal set; }
@@ -29,6 +58,8 @@ public sealed class Turma
     }
 
     public TimeOnly? Horario { get; internal set; }
+
+    public TimeOnly? HorarioFim { get; internal set; }
 
     public DateOnly? DataInicio { get; internal set; }
 
@@ -78,6 +109,20 @@ public sealed class Turma
         if (string.IsNullOrWhiteSpace(value))
             throw new DomainException("Status da turma e obrigatorio.");
 
-        return value.Trim();
+        return Estados.Normalize(value.Trim());
+    }
+
+    public void DefinirHorarios(TimeOnly? inicio, TimeOnly? fim)
+    {
+        if (inicio is not null && fim is not null && fim <= inicio)
+            throw new DomainException("Horario fim deve ser maior que horario inicio.");
+
+        Horario = inicio;
+        HorarioFim = fim;
+    }
+
+    public void TransicionarStatus(string proximo)
+    {
+        Status = Estados.Normalize(proximo);
     }
 }

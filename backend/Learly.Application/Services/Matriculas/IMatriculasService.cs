@@ -26,4 +26,10 @@ public interface IMatriculasService
         VincularTurmaMatriculaRequest request,
         AppUserContext uc,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Remove o aluno apenas desta turma (historico preservado; aluno continua ativo na escola).</summary>
+    Task<MatriculaOperacaoResultado> RemoverDaTurmaAsync(
+        int id,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default);
 }

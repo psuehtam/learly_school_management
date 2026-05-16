@@ -23,4 +23,26 @@ public interface IAulasService
         CancellationToken cancellationToken = default);
 
     Task<AulaOperacaoResultado> CancelarAsync(int id, AppUserContext uc, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<PresencaResponse>> ListarPresencasAsync(
+        int aulaId,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default);
+
+    Task<AulaOperacaoResultado> RegistrarChamadaAsync(
+        int aulaId,
+        RegistrarChamadaRequest request,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<HomeworkResponse>> ListarHomeworkAsync(
+        int aulaId,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default);
+
+    Task<AulaOperacaoResultado> LancarHomeworkAsync(
+        int aulaId,
+        LancarHomeworkRequest request,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default);
 }

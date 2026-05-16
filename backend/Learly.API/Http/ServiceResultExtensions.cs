@@ -1,5 +1,6 @@
 using Learly.Application.Contracts.Aulas;
 using Learly.Application.Contracts.Aulas.Responses;
+using Learly.Application.Contracts.Alunos;
 using Learly.Application.Contracts.Alunos.Responses;
 using Learly.Application.Contracts.Contratos;
 using Learly.Application.Contracts.Escolas;
@@ -10,6 +11,7 @@ using Learly.Application.Contracts.Matriculas.Responses;
 using Learly.Application.Contracts.Livros;
 using Learly.Application.Contracts.PreAlunos;
 using Learly.Application.Contracts.PreAlunos.Responses;
+using Learly.Application.Contracts.Turmas;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Learly.API.Http;
@@ -162,6 +164,49 @@ public static class ServiceResultExtensions
             Detail = r.Mensagem ?? "Falha ao listar matriculas.",
             Status = StatusCodes.Status400BadRequest
         });
+    }
+
+    public static IActionResult ToActionResult(this AlunosListagemResultado r, ControllerBase c)
+    {
+        if (r.Ok)
+        {
+            return c.Ok(r.Itens);
+        }
+
+        if (r.Falha == AlunosListagemFalha.AcessoNegado)
+        {
+            return c.Forbid();
+        }
+
+        return c.BadRequest(new ProblemDetails
+        {
+            Title = "Requisicao invalida",
+            Detail = r.Mensagem ?? "Falha ao listar alunos.",
+            Status = StatusCodes.Status400BadRequest
+        });
+    }
+
+    public static IActionResult ToActionResult(this AlunoDetalheResultado r, ControllerBase c)
+    {
+        if (r.Ok && r.Aluno is not null)
+            return c.Ok(r.Aluno);
+
+        return r.Falha switch
+        {
+            AlunoDetalheFalha.AcessoNegado => c.Forbid(),
+            AlunoDetalheFalha.NaoEncontrado => c.NotFound(new ProblemDetails
+            {
+                Title = "Nao encontrado",
+                Detail = r.Mensagem ?? "Aluno nao encontrado.",
+                Status = StatusCodes.Status404NotFound
+            }),
+            _ => c.BadRequest(new ProblemDetails
+            {
+                Title = "Requisicao invalida",
+                Detail = r.Mensagem ?? "Falha ao obter aluno.",
+                Status = StatusCodes.Status400BadRequest
+            })
+        };
     }
 
     public static IActionResult ToActionResult(this CriarAlunoResultado r, ControllerBase c)
@@ -478,5 +523,78 @@ public static class ServiceResultExtensions
             Detail = r.Mensagem ?? "Falha ao gerar contrato.",
             Status = code
         });
+    }
+
+    public static IActionResult ToActionResult(this TurmasListagemResultado r, ControllerBase c)
+    {
+        if (r.Ok)
+            return c.Ok(r.Itens);
+
+        if (r.Falha == TurmasFalha.AcessoNegado)
+            return c.Forbid();
+
+        return c.BadRequest(new ProblemDetails
+        {
+            Title = "Requisicao invalida",
+            Detail = r.Mensagem ?? "Falha ao listar turmas.",
+            Status = StatusCodes.Status400BadRequest
+        });
+    }
+
+    public static IActionResult ToActionResult(this TurmaDetalheResultado r, ControllerBase c)
+    {
+        if (r.Ok && r.Turma is not null)
+            return c.Ok(r.Turma);
+
+        return r.Falha switch
+        {
+            TurmasFalha.AcessoNegado => c.Forbid(),
+            TurmasFalha.NaoEncontrado => c.NotFound(new ProblemDetails
+            {
+                Title = "Nao encontrado",
+                Detail = r.Mensagem ?? "Turma nao encontrada.",
+                Status = StatusCodes.Status404NotFound
+            }),
+            _ => c.BadRequest(new ProblemDetails
+            {
+                Title = "Requisicao invalida",
+                Detail = r.Mensagem ?? "Falha ao obter turma.",
+                Status = StatusCodes.Status400BadRequest
+            })
+        };
+    }
+
+    public static IActionResult ToActionResult(this TurmaOperacaoResultado r, ControllerBase c, bool created = false)
+    {
+        if (r.Ok && r.Turma is not null)
+        {
+            return created
+                ? c.StatusCode(StatusCodes.Status201Created, r.Turma)
+                : c.Ok(r.Turma);
+        }
+
+        var code = r.StatusCode is >= 400 and <= 599 ? r.StatusCode : StatusCodes.Status400BadRequest;
+        return r.Falha switch
+        {
+            TurmasFalha.AcessoNegado => c.Forbid(),
+            TurmasFalha.NaoEncontrado => c.NotFound(new ProblemDetails
+            {
+                Title = "Nao encontrado",
+                Detail = r.Mensagem ?? "Turma nao encontrada.",
+                Status = StatusCodes.Status404NotFound
+            }),
+            TurmasFalha.Conflito => c.Conflict(new ProblemDetails
+            {
+                Title = "Conflito",
+                Detail = r.Mensagem ?? "Conflito de turma.",
+                Status = StatusCodes.Status409Conflict
+            }),
+            _ => c.StatusCode(code, new ProblemDetails
+            {
+                Title = "Requisicao invalida",
+                Detail = r.Mensagem ?? "Falha na operacao de turma.",
+                Status = code
+            })
+        };
     }
 }

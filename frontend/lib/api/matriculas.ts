@@ -57,8 +57,21 @@ export async function listarMatriculas(filtro?: ListarMatriculasFiltro): Promise
   return data.map(normalizarItemMatricula);
 }
 
+export async function criarMatricula(payload: {
+  alunoId: number;
+  turmaId?: number;
+  dataMatricula: string;
+}): Promise<{ id: number }> {
+  return apiRequest<{ id: number }>("/api/matriculas", { method: "POST", body: payload });
+}
+
 export async function cancelarMatriculaById(matriculaId: number): Promise<void> {
   await apiRequest<void>(`/api/matriculas/${matriculaId}/cancelar`, { method: "PATCH" });
+}
+
+/** Remove o aluno apenas desta turma; o registro fica no histórico e ele pode entrar em outra turma. */
+export async function removerAlunoDaTurma(matriculaId: number): Promise<void> {
+  await apiRequest<void>(`/api/matriculas/${matriculaId}/remover-da-turma`, { method: "PATCH" });
 }
 
 export async function vincularTurmaMatricula(matriculaId: number, turmaId: number): Promise<void> {

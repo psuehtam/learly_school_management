@@ -34,8 +34,19 @@ public sealed class HorariosFuncionamentoController : ControllerBase
 
     /// <summary>Leitura da grade semanal para validar compromissos (perfis que agendam reunioes).</summary>
     [HttpGet("consulta-compromissos")]
-    [RequirePermission("CRIAR_COMPROMISSO", "EDITAR_COMPROMISSO", "VISUALIZAR_COMPROMISSOS")]
+    [RequirePermission("CRIAR_COMPROMISSO", "EDITAR_COMPROMISSO", "VISUALIZAR_COMPROMISSOS", "VISUALIZAR_AULA")]
     public async Task<IActionResult> ListarParaConsultaCompromissos(CancellationToken cancellationToken)
+    {
+        var resultado = await _service.ListarAsync(
+            AppUserContextMapper.From(HttpContext.GetUserContext()),
+            cancellationToken);
+        return resultado.ToActionResult(this);
+    }
+
+    /// <summary>Leitura da grade semanal para validar horários de turmas.</summary>
+    [HttpGet("consulta-turmas")]
+    [RequirePermission("CRIAR_TURMA", "AGENDAR_TURMA", "EDITAR_TURMA", "VISUALIZAR_TURMA")]
+    public async Task<IActionResult> ListarParaConsultaTurmas(CancellationToken cancellationToken)
     {
         var resultado = await _service.ListarAsync(
             AppUserContextMapper.From(HttpContext.GetUserContext()),

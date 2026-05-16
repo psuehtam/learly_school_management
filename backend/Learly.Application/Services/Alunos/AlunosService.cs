@@ -1,3 +1,4 @@
+using Learly.Application.Contracts.Alunos;
 using Learly.Application.Contracts.Alunos.Requests;
 using Learly.Application.Contracts.Alunos.Responses;
 using Learly.Application.Services.Common;
@@ -24,6 +25,129 @@ public sealed class AlunosService : IAlunosService
         _matriculas = matriculas;
         _escolas = escolas;
         _unitOfWork = unitOfWork;
+    }
+
+    public async Task<AlunosListagemResultado> ListarAsync(
+        ListarAlunosQuery query,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default)
+    {
+        var escolaId = await ObterIdEscolaAtivaPorCodigoAsync(uc.CodigoEscola, cancellationToken);
+        if (!escolaId.HasValue)
+        {
+            return new AlunosListagemResultado(false, [], "Acesso negado.", AlunosListagemFalha.AcessoNegado);
+        }
+
+        string? statusFiltro = null;
+        if (!string.IsNullOrWhiteSpace(query.Status))
+        {
+            try
+            {
+                statusFiltro = Aluno.Estados.Normalize(query.Status);
+            }
+            catch
+            {
+                return new AlunosListagemResultado(false, [], "Status de filtro invalido.", AlunosListagemFalha.Validacao);
+            }
+        }
+
+        var rows = await _alunos.ListarPorEscolaAsync(
+            escolaId.Value,
+            statusFiltro,
+            query.Busca,
+            query.Limite,
+            cancellationToken);
+
+        var itens = rows.Select(r => new AlunoListItemResponse
+        {
+            Id = r.Id,
+            EscolaId = r.EscolaId,
+            Nome = r.Nome,
+            Sobrenome = r.Sobrenome,
+            Cpf = r.Cpf,
+            Status = r.Status
+        }).ToList();
+
+        return new AlunosListagemResultado(true, itens, null, AlunosListagemFalha.Nenhuma);
+    }
+
+    public async Task<AlunoDetalheResultado> ObterPorIdAsync(
+        int id,
+        AppUserContext uc,
+        CancellationToken cancellationToken = default)
+    {
+        if (id <= 0)
+        {
+            return new AlunoDetalheResultado(false, null, "Id de aluno invalido.", AlunoDetalheFalha.NaoEncontrado);
+        }
+
+        var escolaId = await ObterIdEscolaAtivaPorCodigoAsync(uc.CodigoEscola, cancellationToken);
+        if (!escolaId.HasValue)
+        {
+            return new AlunoDetalheResultado(false, null, "Acesso negado.", AlunoDetalheFalha.AcessoNegado);
+        }
+
+        var aluno = await _alunos.ObterPorIdEEscolaAsync(id, escolaId.Value, cancellationToken);
+        if (aluno is null)
+        {
+            return new AlunoDetalheResultado(false, null, "Aluno nao encontrado.", AlunoDetalheFalha.NaoEncontrado);
+        }
+
+        var escola = await _escolas.ObterPorIdAsync(escolaId.Value, cancellationToken);
+        var responsavel = await _alunos.ObterResponsavelPorIdEEscolaAsync(
+            aluno.ResponsavelId,
+            escolaId.Value,
+            cancellationToken);
+
+        var telefoneAluno = await _alunos.ObterTelefonePrincipalAsync(
+            escolaId.Value,
+            "aluno",
+            aluno.Id,
+            cancellationToken);
+
+        string? telefoneResponsavel = null;
+        if (responsavel is not null)
+        {
+            telefoneResponsavel = await _alunos.ObterTelefonePrincipalAsync(
+                escolaId.Value,
+                "responsavel",
+                responsavel.Id,
+                cancellationToken);
+        }
+
+        var resp = new AlunoDetalheResponse
+        {
+            Id = aluno.Id,
+            EscolaId = aluno.EscolaId,
+            EscolaNome = escola?.NomeFantasia ?? "",
+            Nome = aluno.Nome,
+            Sobrenome = aluno.Sobrenome,
+            Sexo = aluno.Sexo,
+            DataNascimento = aluno.DataNascimento.ToString("yyyy-MM-dd"),
+            DataIngresso = aluno.DataIngresso.ToString("yyyy-MM-dd"),
+            Cpf = aluno.Cpf,
+            Status = aluno.Status,
+            Cep = aluno.Cep,
+            TipoLogradouro = aluno.TipoLogradouro,
+            Logradouro = aluno.Logradouro,
+            Numero = aluno.Numero,
+            Complemento = aluno.Complemento,
+            Bairro = aluno.Bairro,
+            Municipio = aluno.Municipio,
+            NaturalidadeCidade = aluno.NaturalidadeCidade,
+            NaturalidadeEstado = aluno.NaturalidadeEstado,
+            RgNumero = aluno.RgNumero,
+            RgExpedicao = aluno.RgExpedicao?.ToString("yyyy-MM-dd"),
+            RgOrgao = aluno.RgOrgao,
+            TelefoneAluno = telefoneAluno,
+            EProprioResponsavel = aluno.EProprioResponsavel,
+            ResponsavelNome = responsavel?.Nome,
+            ResponsavelSobrenome = responsavel?.Sobrenome,
+            ResponsavelCpf = responsavel?.CpfCnpj,
+            TelefoneResponsavel = telefoneResponsavel,
+        };
+
+        return new AlunoDetalheResultado(true, resp, null, AlunoDetalheFalha.Nenhuma);
     }
 
     public async Task<CriarAlunoResultado> CriarAlunoAsync(

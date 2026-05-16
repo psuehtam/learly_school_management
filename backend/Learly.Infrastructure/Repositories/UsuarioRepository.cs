@@ -63,6 +63,6 @@ internal sealed class UsuarioRepository(LearlyDbContext db) : RepositoryBase<Usu
                 u => new { u.PerfilId, u.EscolaId },
                 p => new { PerfilId = p.Id, p.EscolaId },
                 (_, p) => p.Nome)
-            .AnyAsync(nome => string.Equals(nome, "Professor", StringComparison.OrdinalIgnoreCase), cancellationToken);
+            .AnyAsync(nome => nome.ToLower() == "professor", cancellationToken);
     }
 }

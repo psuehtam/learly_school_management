@@ -1,8 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import {
+  atualizarOcorrenciaAluno,
+  criarOcorrenciaAluno,
+  justificarFaltaAluno,
+  listarDocumentosAluno,
+  listarFaltasAluno,
+  listarOcorrenciasAluno,
+  type AlunoDocumento,
+  type AlunoFalta,
+  type AlunoOcorrencia,
+  type SalvarOcorrenciaPayload,
+} from "@/lib/api/aluno-perfil";
+import { buscarAluno, type AlunoDetalhe } from "@/lib/api/alunos";
+import { ApiError } from "@/lib/api/client";
+import { listarMatriculas, type MatriculaListItem, type MatriculaStatus } from "@/lib/api/matriculas";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface HistoricoMatricula {
@@ -10,39 +25,12 @@ interface HistoricoMatricula {
   periodoLetivo: string;
   unidade: string;
   turma: string;
-  situacao: "ATIVO" | "CANCELADO" | "CONCLUÍDO" | "TRANCADO";
+  situacao: "ATIVO" | "CANCELADO" | "CONCLUÍDO" | "TRANCADO" | "EM ESPERA";
 }
 
-interface Ocorrencia {
-  id: number;
-  data: string;
-  hora: string;
-  tipo: "Acadêmica" | "Administrativa";
-  descricao: string;
-  resolucao: string;
-  aulaVinculada: string;
-  autor: string;
-}
-
-interface Documento {
-  id: number;
-  nome: string;
-  tipo: string;
-  dataEnvio: string;
-  tamanho: string;
-  autor: string;
-}
-
-interface Falta {
-  id: number;
-  data: string;
-  book: string;
-  aula: string;
-  justificada: boolean;
-  motivo?: string;
-  autorJustificativa?: string;
-  dataJustificativa?: string;
-}
+type Ocorrencia = AlunoOcorrencia;
+type Documento = AlunoDocumento;
+type Falta = AlunoFalta;
 
 interface AlunoInfo {
   id: string | number;
@@ -59,39 +47,82 @@ interface AlunoInfo {
   cpfResponsavel: string;
 }
 
-// ─── BANDO DE DADOS SIMULADO (Mock por ID) ────────────────────────────────────
-const bancoDeAlunosMock: Record<string, AlunoInfo> = {
-  "1": {
-    id: 1, nome: "ALICE MASSARI SOARES", cpf: "123.456.789-00", naturalidade: "SÃO PAULO / SP", dataIngresso: "01/02/2024", dataNascimento: "15/08/2010", telefoneAluno: "(11) 99999-1111", rg: "12.345.678-9 /SP", endereco: "RUA DAS FLORES, 123 - CENTRO - SÃO PAULO / SP", telefoneResponsavel: "(11) 98888-2222", nomeResponsavel: "TULLAINE MASSARI", cpfResponsavel: "987.654.321-00"
-  },
-  "2": {
-    id: 2, nome: "RONALD XAVIER DE ABREU", cpf: "234.567.890-00", naturalidade: "CURITIBA / PR", dataIngresso: "01/02/2023", dataNascimento: "25/02/2008", telefoneAluno: "(41) 99949-0460", rg: "98.765.432-1 /PR", endereco: "RUA SANTA MÔNICA, 832 - CAPÃO RASO - CURITIBA / PR", telefoneResponsavel: "(41) 99949-0460", nomeResponsavel: "CARLOS DE ABREU", cpfResponsavel: "876.543.210-00"
-  },
-  "3": {
-    id: 3, nome: "JULIA FERREIRA LIMA", cpf: "345.678.901-00", naturalidade: "RIO DE JANEIRO / RJ", dataIngresso: "05/03/2024", dataNascimento: "10/12/2005", telefoneAluno: "(21) 97777-3333", rg: "11.222.333-4 /RJ", endereco: "AV. BRASIL, 456 - COPACABANA - RIO DE JANEIRO / RJ", telefoneResponsavel: "(21) 97777-3333", nomeResponsavel: "JULIA FERREIRA LIMA", cpfResponsavel: "345.678.901-00"
+function formatarDataBr(iso: string): string {
+  if (!iso) return "—";
+  if (iso.includes("/")) return iso;
+  const parte = iso.split("T")[0];
+  const [y, m, d] = parte.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
+function montarEndereco(d: AlunoDetalhe): string {
+  const linha1 = `${d.tipoLogradouro} ${d.logradouro}, ${d.numero}`.trim();
+  const partes = [linha1, d.complemento, d.bairro, d.municipio].filter((p) => p && String(p).trim());
+  return partes.join(" - ").toUpperCase() || "—";
+}
+
+function alunoDetalheParaInfo(d: AlunoDetalhe): AlunoInfo {
+  const naturalidade = [d.naturalidadeCidade, d.naturalidadeEstado].filter(Boolean).join(" / ");
+  const rgPartes = [d.rgNumero, d.rgOrgao].filter(Boolean);
+  const rgExp = d.rgExpedicao ? formatarDataBr(d.rgExpedicao) : "";
+  const rg = rgPartes.length ? `${rgPartes.join(" - ")}${rgExp ? ` (${rgExp})` : ""}` : "—";
+  const nomeResp = [d.responsavelNome, d.responsavelSobrenome].filter(Boolean).join(" ").trim();
+
+  return {
+    id: d.id,
+    nome: `${d.nome} ${d.sobrenome}`.trim().toUpperCase(),
+    cpf: d.cpf?.trim() || "—",
+    naturalidade: naturalidade ? naturalidade.toUpperCase() : "—",
+    dataIngresso: formatarDataBr(d.dataIngresso),
+    dataNascimento: formatarDataBr(d.dataNascimento),
+    telefoneAluno: d.telefoneAluno?.trim() || "—",
+    rg: rg.toUpperCase(),
+    endereco: montarEndereco(d),
+    telefoneResponsavel: d.telefoneResponsavel?.trim() || "—",
+    nomeResponsavel: nomeResp ? nomeResp.toUpperCase() : "—",
+    cpfResponsavel: d.responsavelCpf?.trim() || "—",
+  };
+}
+
+function statusMatriculaParaSituacao(status: MatriculaStatus): HistoricoMatricula["situacao"] {
+  switch (status) {
+    case "Ativo":
+      return "ATIVO";
+    case "Cancelado":
+      return "CANCELADO";
+    case "Concluido":
+      return "CONCLUÍDO";
+    case "Trancado":
+      return "TRANCADO";
+    case "Em Espera":
+    default:
+      return "EM ESPERA";
   }
-};
+}
 
-const historicoMatriculasInicial: HistoricoMatricula[] = [
-  { id: 128, periodoLetivo: "BOOK 1 ADULTS / 12 QUI 19:00", unidade: "CWB IDIOMAS", turma: "BOOK 1 (IDIOMA) B1 ADULTS / 12 QUI 19:00", situacao: "CANCELADO" },
-  { id: 145, periodoLetivo: "BOOK 2 ADULTS / 01 SEG 18:30", unidade: "CWB IDIOMAS", turma: "BOOK 2 (IDIOMA) B2 ADULTS / 01 SEG 18:30", situacao: "ATIVO" }
-];
+function matriculaParaHistorico(m: MatriculaListItem, unidade: string): HistoricoMatricula {
+  const turma = m.turmaNome?.trim() || "—";
+  const periodo = turma !== "—" ? turma : `Matrícula ${formatarDataBr(m.dataMatricula)}`;
+  return {
+    id: m.id,
+    periodoLetivo: periodo,
+    unidade,
+    turma,
+    situacao: statusMatriculaParaSituacao(m.status),
+  };
+}
 
-const ocorrenciasMockIniciais: Ocorrencia[] = [
-  { id: 1, data: "2026-03-15", hora: "14:30", tipo: "Acadêmica", descricao: "Aluno chegou 30 minutos atrasado e perdeu a introdução da lição. Orientado a chegar no horário.", resolucao: "Conversa com o aluno ao final da aula.", aulaVinculada: "Lesson 3 - Simple Past", autor: "Prof. Marcos Silva" },
-  { id: 2, data: "2026-02-20", hora: "09:00", tipo: "Administrativa", descricao: "Aluno solicitou renegociação da parcela de fevereiro por motivos de saúde.", resolucao: "Prazo estendido para dia 25/02 sem juros.", aulaVinculada: "—", autor: "Ana (Secretaria)" }
-];
-
-const documentosMockIniciais: Documento[] = [
-  { id: 1, nome: "Contrato de Matrícula Assinado", tipo: "Contrato (PDF)", dataEnvio: "05/08/2024", tamanho: "2.4 MB", autor: "Ana (Secretaria)" },
-  { id: 2, nome: "Print Confirmação Pagamento Fev", tipo: "Conversa WhatsApp (PNG)", dataEnvio: "20/02/2026", tamanho: "850 KB", autor: "Financeiro" }
-];
-
-const faltasMockIniciais: Falta[] = [
-  { id: 1, data: "12/08/2024", book: "BOOK 1 ADULTS / 12 QUI 19:00", aula: "Lesson 2 - Verb To Be", justificada: true, motivo: "Aluno apresentou atestado médico de 2 dias por virose.", autorJustificativa: "Ana (Secretaria)", dataJustificativa: "14/08/2024" },
-  { id: 2, data: "05/09/2024", book: "BOOK 1 ADULTS / 12 QUI 19:00", aula: "Lesson 6 - Daily Routine", justificada: false },
-  { id: 3, data: "10/03/2026", book: "BOOK 2 ADULTS / 01 SEG 18:30", aula: "Lesson 4 - Past Continuous", justificada: false },
-];
+function ocorrenciaParaPayload(dados: Ocorrencia): SalvarOcorrenciaPayload {
+  return {
+    data: dados.data,
+    hora: dados.hora,
+    tipo: dados.tipo,
+    descricao: dados.descricao,
+    resolucao: dados.resolucao || undefined,
+    aulaVinculada: dados.aulaVinculada || undefined,
+  };
+}
 
 // ─── Componentes Auxiliares ───────────────────────────────────────────────────
 function LabelValue({ label, value, whatsapp }: { label: string, value: string, whatsapp?: boolean }) {
@@ -142,7 +173,7 @@ function ModalEditarHistorico({ matricula, onClose, onSave }: { matricula: Histo
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-zinc-700">Situação</label>
             <select value={form.situacao} onChange={(e) => setForm({ ...form, situacao: e.target.value as HistoricoMatricula["situacao"] })} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35] transition bg-white">
-              <option value="ATIVO">ATIVO</option><option value="CANCELADO">CANCELADO</option><option value="CONCLUÍDO">CONCLUÍDO</option><option value="TRANCADO">TRANCADO</option>
+              <option value="ATIVO">ATIVO</option><option value="CANCELADO">CANCELADO</option><option value="CONCLUÍDO">CONCLUÍDO</option><option value="TRANCADO">TRANCADO</option><option value="EM ESPERA">EM ESPERA</option>
             </select>
           </div>
         </div>
@@ -155,8 +186,29 @@ function ModalEditarHistorico({ matricula, onClose, onSave }: { matricula: Histo
   );
 }
 
-function ModalOcorrencia({ ocorrencia, onClose, onSave }: { ocorrencia?: Ocorrencia | null, onClose: () => void, onSave: (o: Ocorrencia) => void }) {
+function ModalOcorrencia({
+  ocorrencia,
+  onClose,
+  onSave,
+}: {
+  ocorrencia?: Ocorrencia | null;
+  onClose: () => void;
+  onSave: (o: Ocorrencia) => Promise<void>;
+}) {
   const [form, setForm] = useState<Ocorrencia>(() => ocorrencia ?? createDefaultOcorrencia());
+  const [salvandoModal, setSalvandoModal] = useState(false);
+
+  async function handleSubmit() {
+    setSalvandoModal(true);
+    try {
+      await onSave(form);
+      onClose();
+    } catch {
+      // erro exibido na página
+    } finally {
+      setSalvandoModal(false);
+    }
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 flex flex-col max-h-[95vh]">
@@ -176,21 +228,28 @@ function ModalOcorrencia({ ocorrencia, onClose, onSave }: { ocorrencia?: Ocorren
         </div>
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200">
           <button onClick={onClose} className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 rounded-lg hover:bg-zinc-50 transition-colors">Cancelar</button>
-          <button disabled={!form.data || !form.hora || !form.descricao} onClick={() => { onSave(form); onClose(); }} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{ocorrencia ? "Salvar Alterações" : "Registrar Ocorrência"}</button>
+          <button disabled={!form.data || !form.hora || !form.descricao || salvandoModal} onClick={() => void handleSubmit()} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{salvandoModal ? "Salvando..." : ocorrencia ? "Salvar Alterações" : "Registrar Ocorrência"}</button>
         </div>
       </div>
     </div>
   );
 }
 
-function ModalAnexarDocumento({ onClose, onSave }: { onClose: () => void, onSave: (d: Documento) => void }) {
+function ModalAnexarDocumento({ onClose, onSave }: { onClose: () => void, onSave: () => Promise<void> }) {
   const [nome, setNome] = useState("");
   const [tipo, setTipo] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
-  function handleSave() {
+  const [enviando, setEnviando] = useState(false);
+
+  async function handleSave() {
     if (!nome || !tipo || !arquivo) return;
-    const tamanhoFmt = arquivo.size < 1024 * 1024 ? (arquivo.size / 1024).toFixed(1) + " KB" : (arquivo.size / (1024 * 1024)).toFixed(1) + " MB";
-    onSave({ id: Date.now(), nome, tipo, dataEnvio: new Date().toLocaleDateString('pt-BR'), tamanho: tamanhoFmt, autor: "Você (Usuário Logado)" });
+    setEnviando(true);
+    try {
+      await onSave();
+      onClose();
+    } finally {
+      setEnviando(false);
+    }
   }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -206,16 +265,37 @@ function ModalAnexarDocumento({ onClose, onSave }: { onClose: () => void, onSave
         </div>
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200">
           <button onClick={onClose} className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 rounded-lg hover:bg-zinc-50 transition-colors">Cancelar</button>
-          <button disabled={!nome || !tipo || !arquivo} onClick={() => { handleSave(); onClose(); }} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Fazer Upload</button>
+          <button disabled={!nome || !tipo || !arquivo || enviando} onClick={() => void handleSave()} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{enviando ? "Enviando..." : "Fazer Upload"}</button>
         </div>
       </div>
     </div>
   );
 }
 
-function ModalJustificativaFalta({ falta, onClose, onSave }: { falta: Falta, onClose: () => void, onSave: (id: number, motivo: string) => void }) {
+function ModalJustificativaFalta({
+  falta,
+  onClose,
+  onSave,
+}: {
+  falta: Falta;
+  onClose: () => void;
+  onSave: (id: number, motivo: string) => Promise<void>;
+}) {
   const [motivo, setMotivo] = useState(falta.motivo || "");
+  const [salvandoModal, setSalvandoModal] = useState(false);
   const isJustificada = falta.justificada;
+
+  async function handleJustificar() {
+    setSalvandoModal(true);
+    try {
+      await onSave(falta.id, motivo);
+      onClose();
+    } catch {
+      // erro exibido na página
+    } finally {
+      setSalvandoModal(false);
+    }
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col">
@@ -239,7 +319,7 @@ function ModalJustificativaFalta({ falta, onClose, onSave }: { falta: Falta, onC
         </div>
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200">
           <button onClick={onClose} className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 rounded-lg hover:bg-zinc-50 transition-colors">{isJustificada ? "Fechar" : "Cancelar"}</button>
-          {!isJustificada && (<button disabled={!motivo.trim()} onClick={() => { onSave(falta.id, motivo); onClose(); }} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Salvar Justificativa</button>)}
+          {!isJustificada && (<button disabled={!motivo.trim() || salvandoModal} onClick={() => void handleJustificar()} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{salvandoModal ? "Salvando..." : "Salvar Justificativa"}</button>)}
         </div>
       </div>
     </div>
@@ -248,28 +328,130 @@ function ModalJustificativaFalta({ falta, onClose, onSave }: { falta: Falta, onC
 
 // ─── Página Principal ─────────────────────────────────────────────────────────
 export default function PerfilAlunoPage() {
-  // Puxar o ID da URL via params!
   const params = useParams();
-  const alunoId = params.id as string;
-  
-  // Localizar no Mock
-  const alunoSelecionado = bancoDeAlunosMock[alunoId] || {
-    id: "N/A", nome: "Aluno Não Encontrado", cpf: "—", naturalidade: "—", dataIngresso: "—", dataNascimento: "—", telefoneAluno: "—", rg: "—", endereco: "—", telefoneResponsavel: "—", nomeResponsavel: "—", cpfResponsavel: "—"
-  };
+  const alunoIdParam = params.id as string;
+  const alunoIdNumerico = Number.parseInt(alunoIdParam, 10);
 
-  const [abaAtual, setAbaAtual] = useState("Histórico escolar"); 
-  
-  // States
-  const [historico, setHistorico] = useState<HistoricoMatricula[]>(historicoMatriculasInicial);
-  const [ocorrencias, setOcorrencias] = useState<Ocorrencia[]>(ocorrenciasMockIniciais);
-  const [documentos, setDocumentos] = useState<Documento[]>(documentosMockIniciais);
-  const [faltas, setFaltas] = useState<Falta[]>(faltasMockIniciais);
-  
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [alunoSelecionado, setAlunoSelecionado] = useState<AlunoInfo>({
+    id: "N/A",
+    nome: "Carregando...",
+    cpf: "—",
+    naturalidade: "—",
+    dataIngresso: "—",
+    dataNascimento: "—",
+    telefoneAluno: "—",
+    rg: "—",
+    endereco: "—",
+    telefoneResponsavel: "—",
+    nomeResponsavel: "—",
+    cpfResponsavel: "—",
+  });
+
+  const [abaAtual, setAbaAtual] = useState("Histórico escolar");
+
+  const [historico, setHistorico] = useState<HistoricoMatricula[]>([]);
+  const [ocorrencias, setOcorrencias] = useState<Ocorrencia[]>([]);
+  const [documentos, setDocumentos] = useState<Documento[]>([]);
+  const [faltas, setFaltas] = useState<Falta[]>([]);
+  const [carregandoAbas, setCarregandoAbas] = useState(false);
+  const [erroAbas, setErroAbas] = useState<string | null>(null);
+
   // Modal Control
   const [matriculaEditando, setMatriculaEditando] = useState<HistoricoMatricula | null>(null);
   const [ocorrenciaModal, setOcorrenciaModal] = useState<{ isOpen: boolean, oco: Ocorrencia | null }>({ isOpen: false, oco: null });
   const [documentoModalAberto, setDocumentoModalAberto] = useState(false);
   const [faltaModalAberto, setFaltaModalAberto] = useState<Falta | null>(null);
+
+  useEffect(() => {
+    if (!Number.isFinite(alunoIdNumerico) || alunoIdNumerico <= 0) {
+      setErro("ID de aluno inválido.");
+      setAlunoSelecionado({
+        id: "N/A",
+        nome: "Aluno não encontrado",
+        cpf: "—",
+        naturalidade: "—",
+        dataIngresso: "—",
+        dataNascimento: "—",
+        telefoneAluno: "—",
+        rg: "—",
+        endereco: "—",
+        telefoneResponsavel: "—",
+        nomeResponsavel: "—",
+        cpfResponsavel: "—",
+      });
+      setHistorico([]);
+      setOcorrencias([]);
+      setDocumentos([]);
+      setFaltas([]);
+      setCarregando(false);
+      return;
+    }
+
+    let cancelado = false;
+
+    async function carregar() {
+      setCarregando(true);
+      setCarregandoAbas(true);
+      setErro(null);
+      setErroAbas(null);
+      try {
+        const [detalhe, matriculas, ocorrenciasLista, documentosLista, faltasLista] = await Promise.all([
+          buscarAluno(alunoIdNumerico),
+          listarMatriculas({ alunoId: alunoIdNumerico }),
+          listarOcorrenciasAluno(alunoIdNumerico),
+          listarDocumentosAluno(alunoIdNumerico),
+          listarFaltasAluno(alunoIdNumerico),
+        ]);
+        if (cancelado) return;
+
+        const unidade = detalhe.escolaNome.trim() || "—";
+        setAlunoSelecionado(alunoDetalheParaInfo(detalhe));
+        setHistorico(
+          matriculas
+            .map((m) => matriculaParaHistorico(m, unidade))
+            .sort((a, b) => b.id - a.id),
+        );
+        setOcorrencias(ocorrenciasLista);
+        setDocumentos(documentosLista);
+        setFaltas(faltasLista);
+      } catch (e) {
+        if (cancelado) return;
+        const msg = e instanceof Error ? e.message : "Não foi possível carregar o perfil do aluno.";
+        setErro(msg);
+        setErroAbas(msg);
+        setAlunoSelecionado({
+          id: "N/A",
+          nome: "Aluno não encontrado",
+          cpf: "—",
+          naturalidade: "—",
+          dataIngresso: "—",
+          dataNascimento: "—",
+          telefoneAluno: "—",
+          rg: "—",
+          endereco: "—",
+          telefoneResponsavel: "—",
+          nomeResponsavel: "—",
+          cpfResponsavel: "—",
+        });
+        setHistorico([]);
+        setOcorrencias([]);
+        setDocumentos([]);
+        setFaltas([]);
+      } finally {
+        if (!cancelado) {
+          setCarregando(false);
+          setCarregandoAbas(false);
+        }
+      }
+    }
+
+    void carregar();
+    return () => {
+      cancelado = true;
+    };
+  }, [alunoIdNumerico]);
 
   const abas = [
     "Histórico escolar",
@@ -282,44 +464,79 @@ export default function PerfilAlunoPage() {
     setHistorico(prev => prev.map(m => m.id === dadosEditados.id ? dadosEditados : m));
   }
 
-  function salvarOcorrencia(dadosOcorrencia: Ocorrencia) {
-    if (ocorrencias.find(o => o.id === dadosOcorrencia.id)) {
-      setOcorrencias(prev => prev.map(o => o.id === dadosOcorrencia.id ? dadosOcorrencia : o));
-    } else {
-      setOcorrencias(prev => [dadosOcorrencia, ...prev]);
-    }
+  async function recarregarOcorrencias() {
+    const lista = await listarOcorrenciasAluno(alunoIdNumerico);
+    setOcorrencias(lista);
   }
 
-  function salvarDocumento(novoDoc: Documento) {
-    setDocumentos(prev => [novoDoc, ...prev]);
+  async function recarregarFaltas() {
+    const lista = await listarFaltasAluno(alunoIdNumerico);
+    setFaltas(lista);
   }
 
-  function deletarDocumento(id: number) {
-    if(confirm("Tem certeza que deseja excluir este documento permanentemente?")) {
-      setDocumentos(prev => prev.filter(d => d.id !== id));
-    }
-  }
-
-  function justificarFalta(id: number, motivo: string) {
-    setFaltas(prev => prev.map(f => {
-      if (f.id === id) {
-        return { 
-          ...f, 
-          justificada: true, 
-          motivo: motivo,
-          autorJustificativa: "Você (Usuário Logado)",
-          dataJustificativa: new Date().toLocaleDateString('pt-BR')
-        };
+  async function salvarOcorrencia(dadosOcorrencia: Ocorrencia, ocorrenciaIdEdicao?: number) {
+    setErroAbas(null);
+    try {
+      const payload = ocorrenciaParaPayload(dadosOcorrencia);
+      if (ocorrenciaIdEdicao) {
+        const atualizada = await atualizarOcorrenciaAluno(alunoIdNumerico, ocorrenciaIdEdicao, payload);
+        if (atualizada) {
+          setOcorrencias((prev) =>
+            prev.map((o) => (o.id === ocorrenciaIdEdicao ? atualizada : o)),
+          );
+        } else {
+          await recarregarOcorrencias();
+        }
+      } else {
+        const criada = await criarOcorrenciaAluno(alunoIdNumerico, payload);
+        if (criada) {
+          setOcorrencias((prev) => [criada, ...prev]);
+        } else {
+          await recarregarOcorrencias();
+        }
       }
-      return f;
-    }));
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Não foi possível salvar a ocorrência.";
+      setErroAbas(msg);
+      throw e;
+    }
+  }
+
+  async function salvarDocumento() {
+    setErroAbas(
+      "Upload de documentos será habilitado em breve. O endpoint já está preparado na API.",
+    );
+  }
+
+  async function deletarDocumento(id: number) {
+    if (!confirm("Tem certeza que deseja excluir este documento permanentemente?")) return;
+    setErroAbas("Exclusão de documentos será habilitada em breve. O endpoint já está preparado na API.");
+  }
+
+  async function justificarFalta(id: number, motivo: string) {
+    setErroAbas(null);
+    try {
+      await justificarFaltaAluno(alunoIdNumerico, id, motivo);
+      await recarregarFaltas();
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Não foi possível justificar a falta.";
+      setErroAbas(msg);
+      throw e;
+    }
   }
 
   function formatDate(isoDate: string) {
-    if(!isoDate) return "—";
-    if (isoDate.includes('/')) return isoDate; 
-    const [y, m, d] = isoDate.split('-');
-    return `${d}/${m}/${y}`;
+    return formatarDataBr(isoDate);
   }
 
   const livrosComFaltas = Array.from(new Set(faltas.map(f => f.book)));
@@ -336,10 +553,13 @@ export default function PerfilAlunoPage() {
           </Link>
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold text-zinc-900">Perfil do Aluno</h1>
-            {alunoSelecionado.id !== "N/A" && (
+            {alunoSelecionado.id !== "N/A" && !carregando && (
                <span className="text-sm text-zinc-500 bg-white px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm">ID: {alunoSelecionado.id}</span>
             )}
           </div>
+          {erro && (
+            <p className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+          )}
         </div>
 
         {/* ─── CARD: INFORMAÇÕES GERAIS (COM DADOS DINÂMICOS) ─── */}
@@ -373,6 +593,10 @@ export default function PerfilAlunoPage() {
             <LabelValue label="Responsável | CPF" value={alunoSelecionado.cpfResponsavel} />
           </div>
         </div>
+
+        {erroAbas && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{erroAbas}</p>
+        )}
 
         {/* ─── BARRA DE ABAS ─── */}
         <div className="flex flex-wrap gap-2 border-b border-zinc-200">
@@ -412,7 +636,21 @@ export default function PerfilAlunoPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {historico.map((mat, i) => (
+                  {carregando && (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-8 text-center text-sm text-zinc-500">
+                        Carregando histórico de matrículas...
+                      </td>
+                    </tr>
+                  )}
+                  {!carregando && historico.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-8 text-center text-sm text-zinc-500">
+                        Nenhuma matrícula encontrada para este aluno.
+                      </td>
+                    </tr>
+                  )}
+                  {!carregando && historico.map((mat, i) => (
                     <tr key={mat.id} className={`border-b border-zinc-100 hover:bg-zinc-50 transition-colors ${i === historico.length - 1 ? "border-b-0" : ""}`}>
                       <td className="px-5 py-3 text-zinc-600">{mat.id}</td>
                       <td className="px-5 py-3 font-medium text-zinc-800">{mat.periodoLetivo}</td>
@@ -452,7 +690,9 @@ export default function PerfilAlunoPage() {
               </button>
             </div>
             <div className="flex flex-col gap-4">
-              {ocorrencias.length === 0 ? (
+              {carregandoAbas ? (
+                <div className="bg-white border border-zinc-200 rounded-xl p-10 text-center text-zinc-500">Carregando ocorrencias...</div>
+              ) : ocorrencias.length === 0 ? (
                 <div className="bg-white border border-zinc-200 rounded-xl p-10 text-center text-zinc-500">Nenhuma ocorrência registrada.</div>
               ) : (
                 ocorrencias.map((oco) => (
@@ -501,7 +741,9 @@ export default function PerfilAlunoPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {documentos.length === 0 ? (
+                  {carregandoAbas ? (
+                    <tr><td colSpan={6} className="text-center py-12 text-zinc-400">Carregando documentos...</td></tr>
+                  ) : documentos.length === 0 ? (
                     <tr><td colSpan={6} className="text-center py-12 text-zinc-400">Nenhum documento anexado.</td></tr>
                   ) : (
                     documentos.map((doc, i) => (
@@ -533,7 +775,9 @@ export default function PerfilAlunoPage() {
         {abaAtual === "Faltas justificadas" && (
           <div className="flex flex-col gap-6">
             <h3 className="text-lg font-medium text-zinc-800">Faltas por Período Letivo</h3>
-            {faltas.length === 0 ? (
+            {carregandoAbas ? (
+              <div className="bg-white border border-zinc-200 rounded-xl p-10 text-center text-zinc-500">Carregando faltas...</div>
+            ) : faltas.length === 0 ? (
               <div className="bg-white border border-zinc-200 rounded-xl p-10 text-center text-zinc-500">O aluno não possui nenhuma falta registrada no sistema.</div>
             ) : (
               livrosComFaltas.map((livro) => {
@@ -588,7 +832,11 @@ export default function PerfilAlunoPage() {
       )}
 
       {ocorrenciaModal.isOpen && (
-        <ModalOcorrencia ocorrencia={ocorrenciaModal.oco} onClose={() => setOcorrenciaModal({ isOpen: false, oco: null })} onSave={salvarOcorrencia} />
+        <ModalOcorrencia
+          ocorrencia={ocorrenciaModal.oco}
+          onClose={() => setOcorrenciaModal({ isOpen: false, oco: null })}
+          onSave={(dados) => salvarOcorrencia(dados, ocorrenciaModal.oco?.id)}
+        />
       )}
 
       {documentoModalAberto && (

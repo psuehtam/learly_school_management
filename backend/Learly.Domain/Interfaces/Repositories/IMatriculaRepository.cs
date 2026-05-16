@@ -14,6 +14,28 @@ public interface IMatriculaRepository : IRepository<Matricula, int>
 
     Task<bool> ExisteMatriculaEmEsperaSemTurmaAsync(int escolaId, int alunoId, CancellationToken cancellationToken = default);
 
+    Task<Matricula?> ObterEmEsperaSemTurmaRastreadaAsync(
+        int escolaId,
+        int alunoId,
+        CancellationToken cancellationToken = default);
+
+    Task<HashSet<int>> ListarAlunoIdsComMatriculaAtivaEmTurmaAsync(
+        int escolaId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Outra matricula ativa com turma do mesmo aluno (exclui a matricula informada, se houver).</summary>
+    Task<MatriculaTurmaAtivaInfo?> ObterOutraTurmaAtivaDoAlunoAsync(
+        int escolaId,
+        int alunoId,
+        int? ignorarMatriculaId = null,
+        CancellationToken cancellationToken = default);
+
+    Task<int> EncerrarMatriculasAtivasDaTurmaAsync(
+        int escolaId,
+        int turmaId,
+        string novoStatus,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<MatriculaListagemItem>> ListarPorEscolaComFiltrosAsync(
         int escolaId,
         string? status,

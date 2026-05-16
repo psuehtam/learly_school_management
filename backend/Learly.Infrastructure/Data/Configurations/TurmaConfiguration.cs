@@ -27,6 +27,7 @@ public sealed class TurmaConfiguration : IEntityTypeConfiguration<Turma>
             .HasMaxLength(64);
 
         builder.Property(t => t.Horario).HasColumnName("horario");
+        builder.Property(t => t.HorarioFim).HasColumnName("horario_fim");
         builder.Property(t => t.DataInicio).HasColumnName("data_inicio");
         builder.Property(t => t.DataTerminoPrevista).HasColumnName("data_termino_prevista");
 

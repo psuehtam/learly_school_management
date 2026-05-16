@@ -26,8 +26,9 @@ public sealed class CompromissosController : ControllerBase
         _usuarios = usuarios;
     }
 
+    /// <summary>Lista compromissos do usuário logado (Minha Agenda).</summary>
     [HttpGet]
-    [RequirePermission("VISUALIZAR_COMPROMISSOS")]
+    [RequirePermission("VISUALIZAR_COMPROMISSOS", "VISUALIZAR_AULA")]
     public async Task<ActionResult<IReadOnlyList<CompromissoResponse>>> Listar(CancellationToken cancellationToken)
     {
         var uc = AppUserContextMapper.From(HttpContext.GetUserContext());

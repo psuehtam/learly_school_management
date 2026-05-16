@@ -1,282 +1,581 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import {
+  ativarTurma,
+  concluirTurma,
+  criarTurma,
+  inativarTurma,
+  listarTurmas,
+  type AtivarTurmaPayload,
+} from "@/lib/api/turmas";
+import { passouTerminoPrevisto } from "@/lib/turmas/termino-previsto";
+import {
+  listarHorariosFuncionamentoConsultaTurmas,
+  type HorarioFuncionamentoDto,
+} from "@/lib/api/configuracoes";
+import { listarLivrosEscola, type LivroEscolaDto } from "@/lib/api/livros";
+import { listarUsuariosMinhaEscola, type UsuarioMinhaEscola } from "@/lib/api/usuarios";
+import { getApiErrorMessage } from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
+import { hasPermission } from "@/lib/permissions";
+import { validarHorarioTurmaFuncionamento } from "@/lib/turmas/validar-horario-funcionamento";
+import type { CriarTurmaPayload } from "@/types/turma";
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-type StatusTurma = "em_espera" | "em_andamento" | "concluida" | "cancelada" | "inativa";
-type Turno = "morning" | "afternoon" | "evening";
+type StatusApi = "Em Espera" | "Em Andamento" | "Concluida" | "Cancelada" | "Inativa";
 
-interface Turma {
+type TurmaView = {
   id: number;
   nome: string;
   livro: string;
+  livroId: number;
   professor: string;
-  diaSemana: string; 
+  professorId: number;
+  diaSemanaLabel: string;
   horarioInicio: string;
   horarioFim: string;
   sala: string;
-  turno: Turno;
-  status: StatusTurma;
+  status: StatusApi;
   dataInicio: string;
   dataTermino: string;
+  dataTerminoPrevistaIso: string | null;
   totalAlunos: number;
-  observacoes?: string;
+  diasSemana: number[];
+};
+
+const DIAS_OPCOES = [
+  { label: "Segunda", value: 1 },
+  { label: "Terça", value: 2 },
+  { label: "Quarta", value: 3 },
+  { label: "Quinta", value: 4 },
+  { label: "Sexta", value: 5 },
+  { label: "Sábado", value: 6 },
+] as const;
+
+const inputCls =
+  "h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-[#1F2A35]";
+
+function diasParaLabel(dias: number[]): string {
+  if (dias.length === 0) return "";
+  return dias
+    .map((d) => DIAS_OPCOES.find((o) => o.value === d)?.label?.substring(0, 3).toUpperCase() ?? "")
+    .filter(Boolean)
+    .join("-");
 }
 
-// ─── Dados mock ───────────────────────────────────────────────────────────────
-const turmasMock: Turma[] = [
-  { id: 1, nome: "BOOK 1 (INGLÊS) B1 KIDS / 01 SEG-QUA 14:00", livro: "Book 1", professor: "Carlos Mendes", diaSemana: "Seg, Qua", horarioInicio: "14:00", horarioFim: "15:30", sala: "Sala 1", turno: "afternoon", status: "em_andamento", dataInicio: "06/01/2025", dataTermino: "15/09/2025", totalAlunos: 5 },
-  { id: 2, nome: "BOOK 2 (INGLÊS) B2 TEENS / 02 TER-QUI 18:30", livro: "Book 2", professor: "Ana Paula Silva", diaSemana: "Ter, Qui", horarioInicio: "18:30", horarioFim: "20:00", sala: "Sala 2", turno: "evening", status: "em_andamento", dataInicio: "08/01/2025", dataTermino: "20/10/2025", totalAlunos: 8 },
-  { id: 3, nome: "BOOK 3 (INGLÊS) B3 ADULTS / 03 SEX 09:00", livro: "Book 3", professor: "Carlos Mendes", diaSemana: "Sexta", horarioInicio: "09:00", horarioFim: "11:00", sala: "Sala 1", turno: "morning", status: "em_andamento", dataInicio: "10/01/2025", dataTermino: "05/11/2025", totalAlunos: 4 },
-  { id: 4, nome: "Turma Book 1 - EM ESPERA", livro: "Book 1", professor: "Ana Paula Silva", diaSemana: "", horarioInicio: "", horarioFim: "", sala: "", turno: "morning", status: "em_espera", dataInicio: "A definir", dataTermino: "A definir", totalAlunos: 3 },
-  { id: 5, nome: "Turma Book 2 - EM ESPERA", livro: "Book 2", professor: "Carlos Mendes", diaSemana: "", horarioInicio: "", horarioFim: "", sala: "", turno: "afternoon", status: "em_espera", dataInicio: "A definir", dataTermino: "A definir", totalAlunos: 6 },
-  { id: 6, nome: "BOOK 1 (INGLÊS) B1 TEENS / 04 SAB 10:00", livro: "Book 1", professor: "Carlos Mendes", diaSemana: "Sábado", horarioInicio: "10:00", horarioFim: "12:00", sala: "Sala 3", turno: "morning", status: "concluida", dataInicio: "03/03/2024", dataTermino: "10/11/2024", totalAlunos: 5 },
-];
+function formatarDataBr(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
 
-const turnoLabel: Record<Turno, string> = { morning: "Morning", afternoon: "Afternoon", evening: "Evening" };
-const turnoColors: Record<Turno, string> = { morning: "bg-amber-50 text-amber-700", afternoon: "bg-blue-50 text-blue-700", evening: "bg-purple-50 text-purple-700" };
+function mapApiTurma(t: {
+  id: number;
+  nome: string;
+  livroId: number;
+  livroNome?: string | null;
+  professorId: number;
+  professorNome?: string | null;
+  sala?: string | null;
+  horarioInicio?: string | null;
+  horarioFim?: string | null;
+  dataInicio?: string | null;
+  dataTerminoPrevista?: string | null;
+  status: string;
+  diasSemana?: number[];
+  totalAlunosAtivos?: number;
+}): TurmaView {
+  const dias = t.diasSemana ?? [];
+  return {
+    id: t.id,
+    nome: t.nome,
+    livro: t.livroNome ?? `Livro ${t.livroId}`,
+    livroId: t.livroId,
+    professor: t.professorNome ?? `Professor ${t.professorId}`,
+    professorId: t.professorId,
+    diaSemanaLabel: diasParaLabel(dias),
+    horarioInicio: t.horarioInicio ?? "",
+    horarioFim: t.horarioFim ?? "",
+    sala: t.sala ?? "",
+    status: t.status as StatusApi,
+    dataInicio: t.dataInicio ? formatarDataBr(t.dataInicio) : "A definir",
+    dataTermino: t.dataTerminoPrevista ? formatarDataBr(t.dataTerminoPrevista) : "A calcular na ativação",
+    dataTerminoPrevistaIso: t.dataTerminoPrevista ?? null,
+    totalAlunos: t.totalAlunosAtivos ?? 0,
+    diasSemana: dias,
+  };
+}
 
-const DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-
-// ─── Modal Nova Turma ─────────────────────────────────────────────────────────
-function ModalNovaTurma({ onClose, onSave }: { onClose: () => void, onSave: (t: Partial<Turma>) => void }) {
-  const [form, setForm] = useState({ livro: "", professor: "", alunos: "", observacoes: "" });
-
-  function handleSave() {
-    if (!form.livro || !form.professor) {
-      alert("Professor e Livro são obrigatórios!");
-      return;
-    }
-    
-    const nomeProvisorio = `Turma ${form.livro} - EM ESPERA`;
-    
-    onSave({
-      nome: nomeProvisorio,
-      livro: form.livro,
-      professor: form.professor,
-      observacoes: form.observacoes,
-      status: "em_espera",
-      diaSemana: "", horarioInicio: "", horarioFim: "", sala: "",
-      dataInicio: "A definir", dataTermino: "A definir",
-      turno: "morning", totalAlunos: form.alunos ? 1 : 0, 
-    });
-  }
-
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
-          <h2 className="text-base font-semibold text-zinc-900">Criar Nova Turma</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    <div>
+      <label className="mb-1.5 block text-sm font-medium text-zinc-700">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function ModalShell({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-zinc-900">{title}</h2>
+            {subtitle ? <p className="text-xs text-zinc-500">{subtitle}</p> : null}
+          </div>
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600">
+            ✕
+          </button>
         </div>
-
-        <div className="px-6 py-5 flex flex-col gap-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700">
-            A turma será criada com status <strong>Em Espera</strong>. Dias, horários e datas serão definidos no momento do Agendamento. Você poderá adicionar alunos nela enquanto estiver em espera.
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Professor *</label>
-            <select value={form.professor} onChange={(e) => setForm({...form, professor: e.target.value})} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm bg-white outline-none focus:border-[#1F2A35]">
-              <option value="">Selecione o professor</option>
-              <option>Carlos Mendes</option>
-              <option>Ana Paula Silva</option>
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Livro *</label>
-            <select value={form.livro} onChange={(e) => setForm({...form, livro: e.target.value})} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm bg-white outline-none focus:border-[#1F2A35]">
-              <option value="">Selecione o livro</option>
-              <option>Book 1</option><option>Book 2</option><option>Book 3</option><option>Book 4</option>
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Alunos pré-matriculados (Opcional)</label>
-            <input type="text" placeholder="Buscar alunos para iniciar a lista..." value={form.alunos} onChange={(e) => setForm({...form, alunos: e.target.value})} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35]" />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Observações (Opcional)</label>
-            <textarea rows={2} placeholder="Anotações internas..." value={form.observacoes} onChange={(e) => setForm({...form, observacoes: e.target.value})} className="border border-zinc-300 rounded-lg p-3 text-sm outline-none focus:border-[#1F2A35] resize-none" />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200 bg-zinc-50 rounded-b-xl">
-          <button onClick={onClose} className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 bg-white rounded-lg hover:bg-zinc-50">Cancelar</button>
-          <button onClick={handleSave} className="h-9 px-4 text-sm font-medium text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d]">Salvar e Manter em Espera</button>
-        </div>
+        <div className="flex flex-col gap-4 px-6 py-5">{children}</div>
       </div>
     </div>
   );
 }
 
-// ─── Modal Agendar Turma ──────────────────────────────────────────────────────
-function ModalAgendarTurma({ turma, onClose, onSave }: { turma: Turma, onClose: () => void, onSave: (t: Turma) => void }) {
-  const [diasSelecionados, setDiasSelecionados] = useState<string[]>([]);
-  const [dataInicio, setDataInicio] = useState("");
-  const [horarioInicio, setHorarioInicio] = useState("");
-  const [horarioFim, setHorarioFim] = useState("");
-  const [sala, setSala] = useState("");
+function ModalFooter({
+  onClose,
+  onConfirm,
+  confirmLabel,
+  saving,
+  confirmClass = "bg-[#1F2A35] hover:bg-[#2d3d4d]",
+}: {
+  onClose: () => void;
+  onConfirm: () => void;
+  confirmLabel: string;
+  saving: boolean;
+  confirmClass?: string;
+}) {
+  return (
+    <div className="flex justify-end gap-3 border-t border-zinc-100 pt-4">
+      <button type="button" onClick={onClose} className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600">
+        Cancelar
+      </button>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={onConfirm}
+        className={`rounded-lg px-4 py-2 text-sm font-bold text-white disabled:opacity-50 ${confirmClass}`}
+      >
+        {saving ? "Salvando…" : confirmLabel}
+      </button>
+    </div>
+  );
+}
 
-  function toggleDia(dia: string) {
-    setDiasSelecionados(prev => prev.includes(dia) ? prev.filter(d => d !== dia) : [...prev, dia]);
+function DiasSelector({ dias, toggle }: { dias: number[]; toggle: (v: number) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {DIAS_OPCOES.map((d) => (
+        <button
+          key={d.value}
+          type="button"
+          onClick={() => toggle(d.value)}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-bold ${
+            dias.includes(d.value) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-zinc-300 text-zinc-600"
+          }`}
+        >
+          {d.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function HorariosFields({
+  horaIni,
+  horaFim,
+  setIni,
+  setFim,
+}: {
+  horaIni: string;
+  horaFim: string;
+  setIni: (v: string) => void;
+  setFim: (v: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <Field label="Início (24h) *">
+        <input type="time" value={horaIni} onChange={(e) => setIni(e.target.value)} className={inputCls} />
+      </Field>
+      <Field label="Término (24h) *">
+        <input type="time" value={horaFim} onChange={(e) => setFim(e.target.value)} className={inputCls} />
+      </Field>
+    </div>
+  );
+}
+
+function AlunosHint({ total, compact }: { total: number; compact?: boolean }) {
+  const ok = total >= 3;
+  if (compact) {
+    return (
+      <div>
+        <span className="text-zinc-400">Alunos</span>
+        <p className={`font-semibold ${ok ? "text-zinc-800" : "text-amber-700"}`}>{total} ativos</p>
+      </div>
+    );
+  }
+  return (
+    <div className={`rounded-lg border px-4 py-3 text-sm ${ok ? "border-zinc-200 bg-zinc-50 text-zinc-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+      <strong>{total}</strong> aluno(s) matriculado(s). Mínimo para ativar: <strong>3</strong>.
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: StatusApi }) {
+  const cls =
+    status === "Em Espera"
+      ? "bg-amber-100 text-amber-800"
+      : status === "Em Andamento"
+        ? "bg-sky-100 text-sky-900"
+        : status === "Concluida"
+          ? "bg-emerald-100 text-emerald-800"
+          : "bg-zinc-200 text-zinc-700";
+  return <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${cls}`}>{status}</span>;
+}
+
+function ModalNovaTurma({
+  livros,
+  professores,
+  horariosFuncionamento,
+  onClose,
+  onSave,
+  saving,
+}: {
+  livros: LivroEscolaDto[];
+  professores: UsuarioMinhaEscola[];
+  horariosFuncionamento: HorarioFuncionamentoDto[];
+  onClose: () => void;
+  onSave: (payload: CriarTurmaPayload) => void;
+  saving: boolean;
+}) {
+  const [professorId, setProfessorId] = useState("");
+  const [livroId, setLivroId] = useState("");
+  const [sala, setSala] = useState("");
+  const [observacoes, setObservacoes] = useState("");
+  const [dias, setDias] = useState<number[]>([]);
+  const [horaIni, setHoraIni] = useState("");
+  const [horaFim, setHoraFim] = useState("");
+
+  const profsAtivos = professores.filter(
+    (p) => p.status === "Ativo" && p.perfilNome.toLowerCase().includes("professor"),
+  );
+  const livrosAtivos = livros.filter((l) => l.status === "Ativo");
+
+  function toggleDia(v: number) {
+    setDias((prev) => (prev.includes(v) ? prev.filter((d) => d !== v) : [...prev, v]));
+  }
+
+  function handleSave() {
+    if (!professorId || !livroId) {
+      alert("Professor e livro são obrigatórios.");
+      return;
+    }
+    const erroHorario = validarHorarioTurmaFuncionamento(dias, horaIni, horaFim, horariosFuncionamento);
+    if (erroHorario) {
+      alert(erroHorario);
+      return;
+    }
+    onSave({
+      professorId: Number(professorId),
+      livroId: Number(livroId),
+      sala: sala || undefined,
+      observacoes: observacoes || undefined,
+      diasSemana: dias.length > 0 ? dias : undefined,
+      horarioInicio: horaIni || undefined,
+      horarioFim: horaFim || undefined,
+    });
+  }
+
+  return (
+    <ModalShell title="Criar nova turma" onClose={onClose}>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        Status inicial: <strong>Em Espera</strong>. Ativação exige ≥3 alunos e data de início.
+      </div>
+
+      <Field label="Professor *">
+        <select value={professorId} onChange={(e) => setProfessorId(e.target.value)} className={inputCls}>
+          <option value="">Selecione</option>
+          {profsAtivos.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nomeCompleto}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field label="Livro (book) *">
+        <select value={livroId} onChange={(e) => setLivroId(e.target.value)} className={inputCls}>
+          <option value="">Selecione</option>
+          {livrosAtivos.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.nome} ({l.totalAulasPrevistas} aulas)
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field label="Dias da semana (opcional)">
+        <DiasSelector dias={dias} toggle={toggleDia} />
+      </Field>
+
+      <HorariosFields horaIni={horaIni} horaFim={horaFim} setIni={setHoraIni} setFim={setHoraFim} />
+
+      <Field label="Local / sala">
+        <input value={sala} onChange={(e) => setSala(e.target.value)} className={inputCls} placeholder="Sala ou link" />
+      </Field>
+
+      <Field label="Observações">
+        <textarea
+          rows={2}
+          value={observacoes}
+          onChange={(e) => setObservacoes(e.target.value)}
+          className={`${inputCls} min-h-[72px] py-2`}
+        />
+      </Field>
+
+      <ModalFooter onClose={onClose} onConfirm={handleSave} confirmLabel="Salvar em espera" saving={saving} />
+    </ModalShell>
+  );
+}
+
+function ModalAgendarTurma({
+  turma,
+  horariosFuncionamento,
+  onClose,
+  onSave,
+  saving,
+}: {
+  turma: TurmaView;
+  horariosFuncionamento: HorarioFuncionamentoDto[];
+  onClose: () => void;
+  onSave: (payload: AtivarTurmaPayload) => void;
+  saving: boolean;
+}) {
+  const [dias, setDias] = useState<number[]>(turma.diasSemana);
+  const [dataInicio, setDataInicio] = useState("");
+  const [horaIni, setHoraIni] = useState(turma.horarioInicio);
+  const [horaFim, setHoraFim] = useState(turma.horarioFim);
+  const [sala, setSala] = useState(turma.sala);
+
+  function toggleDia(v: number) {
+    setDias((prev) => (prev.includes(v) ? prev.filter((d) => d !== v) : [...prev, v]));
   }
 
   function handleAgendar() {
-    if (diasSelecionados.length === 0 || !dataInicio || !horarioInicio || !horarioFim) {
-      alert("Preencha os dias da semana, data de início e horários!");
+    if (dias.length === 0 || !dataInicio || !horaIni || !horaFim) {
+      alert("Preencha dias, data de início e horários.");
       return;
     }
-
-    const hora = parseInt(horarioInicio.split(":")[0]);
-    const turnoConvertido: Turno = hora < 12 ? "morning" : hora < 18 ? "afternoon" : "evening";
-
-    const abreviacao = diasSelecionados.map(d => d.substring(0, 3).toUpperCase()).join("-");
-    const codTurma = Math.floor(Math.random() * 10).toString().padStart(2, '0');
-    const nomeOficial = `${turma.livro.toUpperCase()} (INGLÊS) / ${codTurma} ${abreviacao} ${horarioInicio}`;
-
+    if (turma.totalAlunos < 3) {
+      alert(`Mínimo 3 alunos ativos. Atual: ${turma.totalAlunos}.`);
+      return;
+    }
+    const erroHorario = validarHorarioTurmaFuncionamento(dias, horaIni, horaFim, horariosFuncionamento);
+    if (erroHorario) {
+      alert(erroHorario);
+      return;
+    }
     onSave({
-      ...turma,
-      status: "em_andamento",
-      nome: nomeOficial,
-      diaSemana: abreviacao,
-      dataInicio: dataInicio.split("-").reverse().join("/"),
-      dataTermino: "A calcular...", 
-      horarioInicio,
-      horarioFim,
-      sala,
-      turno: turnoConvertido
+      dataInicio,
+      diasSemana: dias,
+      horarioInicio: horaIni,
+      horarioFim: horaFim,
+      sala: sala || undefined,
     });
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
-          <div>
-            <h2 className="text-base font-semibold text-zinc-900">Agendar Turma</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">{turma.nome}</p>
-          </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-        </div>
-
-        <div className="px-6 py-5 flex flex-col gap-5">
-          
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-zinc-700">Dias da Semana *</label>
-            <div className="flex flex-wrap gap-2">
-              {DIAS_SEMANA.map(dia => (
-                <button 
-                  key={dia} 
-                  onClick={() => toggleDia(dia)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors ${diasSelecionados.includes(dia) ? 'bg-blue-50 border-blue-600 text-blue-700' : 'bg-white border-zinc-300 text-zinc-600 hover:bg-zinc-50'}`}
-                >
-                  {dia}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Data de Início *</label>
-            <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35]" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-zinc-700">Horário de Início *</label>
-              <input type="time" value={horarioInicio} onChange={e => setHorarioInicio(e.target.value)} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35]" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-zinc-700">Horário de Término *</label>
-              <input type="time" value={horarioFim} onChange={e => setHorarioFim(e.target.value)} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35]" />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-zinc-700">Sala (Opcional)</label>
-            <input type="text" placeholder="Ex: Lab 1" value={sala} onChange={e => setSala(e.target.value)} className="h-10 border border-zinc-300 rounded-lg px-3 text-sm outline-none focus:border-[#1F2A35]" />
-          </div>
-
-        </div>
-
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-200 bg-zinc-50 rounded-b-xl">
-          <button onClick={onClose} className="h-9 px-4 text-sm font-medium text-zinc-600 border border-zinc-300 bg-white rounded-lg hover:bg-zinc-50">Cancelar</button>
-          <button onClick={handleAgendar} className="h-9 px-4 text-sm font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 shadow-sm flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            Confirmar Agendamento
-          </button>
-        </div>
-      </div>
-    </div>
+    <ModalShell title="Ativar turma" subtitle={turma.nome} onClose={onClose}>
+      <AlunosHint total={turma.totalAlunos} />
+      <Field label="Dias da semana *">
+        <DiasSelector dias={dias} toggle={toggleDia} />
+      </Field>
+      <Field label="Data de início *">
+        <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className={inputCls} />
+      </Field>
+      <HorariosFields horaIni={horaIni} horaFim={horaFim} setIni={setHoraIni} setFim={setHoraFim} />
+      <Field label="Sala">
+        <input value={sala} onChange={(e) => setSala(e.target.value)} className={inputCls} />
+      </Field>
+      <p className="text-xs text-zinc-500">
+        Gera aulas do livro, pula feriados/recessos e define a previsão de término.
+      </p>
+      <ModalFooter
+        onClose={onClose}
+        onConfirm={handleAgendar}
+        confirmLabel="Ativar turma"
+        saving={saving}
+        confirmClass="bg-emerald-600 hover:bg-emerald-700"
+      />
+    </ModalShell>
   );
 }
 
-// ─── Card Turma ───────────────────────────────────────────────────────────────
-function CardTurma({ turma, onInativar, onAgendar }: { turma: Turma, onInativar: (id: number) => void, onAgendar: (t: Turma) => void }) {
-  const isConcluidaOuCancelada = turma.status === "concluida" || turma.status === "cancelada";
-
+function CardTurmaProfessor({ turma }: { turma: TurmaView }) {
   return (
-    <div className={`bg-white border border-zinc-200 rounded-xl p-5 flex flex-col gap-4 transition-colors ${isConcluidaOuCancelada ? 'opacity-70 grayscale-[0.5]' : 'hover:border-zinc-300 hover:shadow-sm'}`}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-zinc-900 text-sm leading-snug truncate">{turma.nome}</p>
-          <p className="text-xs font-medium text-zinc-500 mt-1 flex items-center gap-1.5">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            {turma.professor}
+    <Link
+      href={`/professor/turma/${turma.id}`}
+      className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-[#1F2A35]/30 hover:shadow-md"
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-bold text-zinc-900">{turma.nome}</p>
+        <p className="mt-1 text-xs text-zinc-500">{turma.livro}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-xs">
+        <div>
+          <span className="text-zinc-400">Horário</span>
+          <p className="font-semibold text-zinc-800">
+            {turma.diaSemanaLabel && turma.horarioInicio
+              ? `${turma.diaSemanaLabel} · ${turma.horarioInicio}–${turma.horarioFim}`
+              : "—"}
           </p>
         </div>
-        <span className={`shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${turnoColors[turma.turno]}`}>
-          {turnoLabel[turma.turno]}
-        </span>
-      </div>
-
-      {/* Info Grid */}
-      <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs bg-zinc-50 p-3 rounded-lg border border-zinc-100">
-        <div className="flex flex-col gap-0.5"><span className="text-zinc-400 font-medium">Livro</span><span className="text-zinc-800 font-bold">{turma.livro}</span></div>
-        <div className="flex flex-col gap-0.5"><span className="text-zinc-400 font-medium">Alunos</span><span className="text-zinc-800 font-bold">{turma.totalAlunos} alunos</span></div>
-        
-        <div className="flex flex-col gap-0.5 col-span-2 border-t border-zinc-200 pt-2 mt-1">
-          <span className="text-zinc-400 font-medium">Cronograma</span>
-          <span className="text-zinc-800 font-bold flex items-center gap-1">
-            <svg className="text-zinc-400" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            {turma.diaSemana && turma.horarioInicio ? `${turma.diaSemana} • ${turma.horarioInicio} às ${turma.horarioFim}` : "A definir no agendamento"}
-          </span>
+        <AlunosHint total={turma.totalAlunos} compact />
+        <div className="col-span-2 border-t border-zinc-200 pt-2">
+          <span className="text-zinc-400">Período</span>
+          <p className="font-semibold text-zinc-800">
+            {turma.dataInicio} → {turma.dataTermino}
+          </p>
         </div>
       </div>
 
-      {/* Ações */}
-      <div className="flex gap-2 pt-1 border-t border-zinc-100">
-        {/* 👇 AQUI: Turma em Espera agora tem o botão para ir adicionar alunos! 👇 */}
-        {turma.status === "em_espera" && (
+      <span className="text-center text-xs font-semibold text-[#1F2A35]">Acessar turma →</span>
+    </Link>
+  );
+}
+
+function CardTurma({
+  turma,
+  onInativar,
+  onAgendar,
+  onConcluir,
+  podeConcluir,
+  concluindo,
+}: {
+  turma: TurmaView;
+  onInativar: (id: number) => void;
+  onAgendar: (t: TurmaView) => void;
+  onConcluir: (id: number, nome: string) => void;
+  podeConcluir: boolean;
+  concluindo: boolean;
+}) {
+  const encerrada = turma.status === "Concluida" || turma.status === "Cancelada" || turma.status === "Inativa";
+  const exibirConcluir =
+    podeConcluir &&
+    turma.status === "Em Andamento" &&
+    passouTerminoPrevisto(turma.dataTerminoPrevistaIso);
+
+  return (
+    <div
+      className={`flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-5 ${
+        encerrada ? "opacity-75 grayscale" : "hover:border-zinc-300 hover:shadow-sm"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-zinc-900">{turma.nome}</p>
+          <p className="mt-1 text-xs text-zinc-500">{turma.professor}</p>
+        </div>
+        <StatusBadge status={turma.status} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-xs">
+        <div>
+          <span className="text-zinc-400">Livro</span>
+          <p className="font-semibold text-zinc-800">{turma.livro}</p>
+        </div>
+        <AlunosHint total={turma.totalAlunos} compact />
+        <div className="col-span-2 border-t border-zinc-200 pt-2">
+          <span className="text-zinc-400">Cronograma</span>
+          <p className="font-semibold text-zinc-800">
+            {turma.diaSemanaLabel && turma.horarioInicio
+              ? `${turma.diaSemanaLabel} · ${turma.horarioInicio}–${turma.horarioFim}`
+              : "Definir no agendamento"}
+          </p>
+          {turma.status === "Em Andamento" && (
+            <p className="mt-0.5 text-zinc-500">
+              {turma.dataInicio} → {turma.dataTermino}
+            </p>
+          )}
+          {exibirConcluir && (
+            <p className="mt-1 text-[11px] font-medium text-emerald-700">
+              Prazo previsto encerrado — disponível para conclusão
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-2 border-t border-zinc-100 pt-3">
+        {turma.status === "Em Espera" && (
           <>
-            <button onClick={() => onAgendar(turma)} className="flex-1 h-9 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
-              Agendar Dia/Hora
+            <button
+              type="button"
+              onClick={() => onAgendar(turma)}
+              className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-bold text-white hover:bg-blue-700"
+            >
+              Ativar turma
             </button>
-            <Link href={`/turmas/${turma.id}`} className="flex-1 flex items-center justify-center h-9 text-xs font-bold text-zinc-700 border border-zinc-300 bg-white rounded-lg hover:bg-zinc-50 transition-colors shadow-sm">
-              + Alunos
+            <Link
+              href={`/turmas/${turma.id}`}
+              className="flex flex-1 items-center justify-center rounded-lg border border-zinc-300 bg-white py-2 text-xs font-bold text-zinc-700 hover:bg-zinc-50"
+            >
+              Alunos
             </Link>
           </>
         )}
-        
-        {turma.status === "em_andamento" && (
-          <Link href={`/turmas/${turma.id}`} className="flex-1 flex items-center justify-center h-9 text-xs font-bold text-zinc-700 border border-zinc-300 bg-white rounded-lg hover:bg-zinc-50 transition-colors shadow-sm">
-            Acessar Turma
+        {turma.status === "Em Andamento" && (
+          <>
+            {exibirConcluir && (
+              <button
+                type="button"
+                disabled={concluindo}
+                onClick={() => onConcluir(turma.id, turma.nome)}
+                className="flex flex-1 items-center justify-center rounded-lg bg-emerald-600 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {concluindo ? "Concluindo…" : "Concluir turma"}
+              </button>
+            )}
+            <Link
+              href={`/turmas/${turma.id}`}
+              className="flex flex-1 items-center justify-center rounded-lg border border-zinc-300 bg-white py-2 text-xs font-bold text-zinc-700 hover:bg-zinc-50"
+            >
+              Acessar turma
+            </Link>
+          </>
+        )}
+        {encerrada && (
+          <Link
+            href={`/turmas/${turma.id}`}
+            className="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 py-2 text-xs font-bold text-zinc-600"
+          >
+            Ver detalhes
           </Link>
         )}
-
-        {isConcluidaOuCancelada && (
-          <Link href={`/turmas/${turma.id}`} className="flex-1 flex items-center justify-center h-9 text-xs font-bold text-zinc-500 border border-zinc-200 bg-zinc-50 rounded-lg hover:bg-zinc-100 transition-colors">
-            Ver Histórico
-          </Link>
-        )}
-        
-        {(turma.status === "em_andamento" || turma.status === "em_espera") && (
-          <button onClick={() => onInativar(turma.id)} className="w-10 h-9 flex items-center justify-center text-zinc-400 border border-zinc-200 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors" title="Inativar Turma">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+        {(turma.status === "Em Andamento" || turma.status === "Em Espera") && (
+          <button
+            type="button"
+            onClick={() => onInativar(turma.id)}
+            className="rounded-lg border border-zinc-200 px-3 py-2 text-zinc-400 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            title="Inativar"
+          >
+            ⏻
           </button>
         )}
       </div>
@@ -284,115 +583,303 @@ function CardTurma({ turma, onInativar, onAgendar }: { turma: Turma, onInativar:
   );
 }
 
-// ─── Página principal ─────────────────────────────────────────────────────────
 export default function TurmasPage() {
-  const [turmas, setTurmas] = useState<Turma[]>(turmasMock);
-  const [aba, setAba] = useState<"em_andamento" | "em_espera" | "concluidas" | "inativas">("em_andamento");
-  
-  const [modalNova, setModalNova] = useState(false);
-  const [turmaAgendando, setTurmaAgendando] = useState<Turma | null>(null);
+  const { user, isLoading: authLoading } = useAuth();
+  const podeGerenciarTurma = !!user && hasPermission(user, "CRIAR_TURMA");
+  const podeConcluirTurma = !!user && hasPermission(user, "CONCLUIR_TURMA");
 
-  // Filtros
+  const [turmas, setTurmas] = useState<TurmaView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [concluindoId, setConcluindoId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [aba, setAba] = useState<"andamento" | "espera" | "concluidas" | "inativas">("andamento");
+  const [modalNova, setModalNova] = useState(false);
+  const [turmaAgendando, setTurmaAgendando] = useState<TurmaView | null>(null);
+  const [livros, setLivros] = useState<LivroEscolaDto[]>([]);
+  const [professores, setProfessores] = useState<UsuarioMinhaEscola[]>([]);
+  const [horariosFuncionamento, setHorariosFuncionamento] = useState<HorarioFuncionamentoDto[]>([]);
   const [filtroProfessor, setFiltroProfessor] = useState("todos");
   const [filtroLivro, setFiltroLivro] = useState("todos");
 
-  const turmasFiltradas = turmas.filter((t) => {
-    const abaOk =
-      aba === "em_andamento" ? t.status === "em_andamento" :
-      aba === "em_espera"    ? t.status === "em_espera" :
-      aba === "concluidas"   ? t.status === "concluida" : (t.status === "inativa" || t.status === "cancelada");
-    
-    const profOk  = filtroProfessor === "todos" || t.professor === filtroProfessor;
-    const livroOk = filtroLivro     === "todos" || t.livro     === filtroLivro;
-    return abaOk && profOk && livroOk;
-  });
+  const carregar = useCallback(async () => {
+    if (authLoading) return;
 
-  const countAndamento = turmas.filter(t => t.status === "em_andamento").length;
-  const countEspera    = turmas.filter(t => t.status === "em_espera").length;
-  const countConcluidas= turmas.filter(t => t.status === "concluida").length;
-  const countInativas  = turmas.filter(t => t.status === "inativa" || t.status === "cancelada").length;
+    const gestao = !!user && hasPermission(user, "CRIAR_TURMA");
+    setLoading(true);
+    setError(null);
+    try {
+      const lista = await listarTurmas(gestao ? undefined : { status: "Em Andamento" });
+      setTurmas(lista.map(mapApiTurma));
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Não foi possível carregar turmas."));
+      setTurmas([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [authLoading, user]);
 
-  function inativar(id: number) {
-    if(confirm("Tem certeza que deseja inativar esta turma? Ela não aparecerá mais na agenda dos professores.")) {
-      setTurmas(prev => prev.map(t => t.id === id ? { ...t, status: "inativa" } : t));
+  useEffect(() => {
+    if (authLoading) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const gestao = !!user && hasPermission(user, "CRIAR_TURMA");
+      setLoading(true);
+      setError(null);
+      try {
+        const lista = await listarTurmas(gestao ? undefined : { status: "Em Andamento" });
+        if (!cancelled) setTurmas(lista.map(mapApiTurma));
+      } catch (e) {
+        if (!cancelled) {
+          setError(getApiErrorMessage(e, "Não foi possível carregar turmas."));
+          setTurmas([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
+
+  useEffect(() => {
+    if (authLoading || !podeGerenciarTurma) return;
+    void listarLivrosEscola().then(setLivros).catch(() => setLivros([]));
+    void listarUsuariosMinhaEscola().then(setProfessores).catch(() => setProfessores([]));
+    void listarHorariosFuncionamentoConsultaTurmas()
+      .then(setHorariosFuncionamento)
+      .catch(() => setHorariosFuncionamento([]));
+  }, [authLoading, podeGerenciarTurma]);
+
+  const turmasFiltradas = useMemo(() => {
+    return turmas.filter((t) => {
+      const abaOk =
+        aba === "andamento"
+          ? t.status === "Em Andamento"
+          : aba === "espera"
+            ? t.status === "Em Espera"
+            : aba === "concluidas"
+              ? t.status === "Concluida"
+              : t.status === "Inativa" || t.status === "Cancelada";
+      const profOk = filtroProfessor === "todos" || String(t.professorId) === filtroProfessor;
+      const livroOk = filtroLivro === "todos" || String(t.livroId) === filtroLivro;
+      return abaOk && profOk && livroOk;
+    });
+  }, [turmas, aba, filtroProfessor, filtroLivro]);
+
+  const counts = useMemo(
+    () => ({
+      andamento: turmas.filter((t) => t.status === "Em Andamento").length,
+      espera: turmas.filter((t) => t.status === "Em Espera").length,
+      concluidas: turmas.filter((t) => t.status === "Concluida").length,
+      inativas: turmas.filter((t) => t.status === "Inativa" || t.status === "Cancelada").length,
+    }),
+    [turmas],
+  );
+
+  async function handleCriar(payload: CriarTurmaPayload) {
+    setSaving(true);
+    try {
+      await criarTurma(payload);
+      setModalNova(false);
+      setAba("espera");
+      await carregar();
+    } catch (e) {
+      alert(getApiErrorMessage(e, "Não foi possível criar a turma."));
+    } finally {
+      setSaving(false);
     }
   }
 
-  function criarTurma(dados: Partial<Turma>) {
-    const nova: Turma = { ...dados, id: Date.now() } as Turma;
-    setTurmas(prev => [nova, ...prev]);
-    setModalNova(false);
-    setAba("em_espera");
+  async function handleAtivar(payload: AtivarTurmaPayload) {
+    if (!turmaAgendando) return;
+    setSaving(true);
+    try {
+      await ativarTurma(turmaAgendando.id, payload);
+      setTurmaAgendando(null);
+      setAba("andamento");
+      await carregar();
+    } catch (e) {
+      alert(getApiErrorMessage(e, "Não foi possível ativar a turma."));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function confirmarAgendamento(turmaAtualizada: Turma) {
-    setTurmas(prev => prev.map(t => t.id === turmaAtualizada.id ? turmaAtualizada : t));
-    setTurmaAgendando(null);
-    setAba("em_andamento");
+  async function handleInativar(id: number) {
+    if (!confirm("Inativar esta turma?")) return;
+    try {
+      await inativarTurma(id);
+      await carregar();
+    } catch (e) {
+      alert(getApiErrorMessage(e, "Não foi possível inativar."));
+    }
+  }
+
+  async function handleConcluir(id: number, nome: string) {
+    if (
+      !confirm(
+        `Concluir a turma "${nome}"?\n\nAs matrículas ativas serão marcadas como concluídas e os alunos poderão ser enturmados em outra turma.`,
+      )
+    ) {
+      return;
+    }
+    setConcluindoId(id);
+    try {
+      await concluirTurma(id);
+      setAba("concluidas");
+      await carregar();
+    } catch (e) {
+      alert(getApiErrorMessage(e, "Não foi possível concluir a turma."));
+    } finally {
+      setConcluindoId(null);
+    }
+  }
+
+  if (authLoading) {
+    return <p className="py-16 text-center text-sm text-zinc-500">Carregando turmas…</p>;
+  }
+
+  if (!podeGerenciarTurma) {
+    return (
+      <div className="flex h-full flex-col gap-6">
+        <div>
+          <h1 className="text-xl font-semibold text-zinc-900">Minhas Turmas</h1>
+          <p className="mt-0.5 text-sm text-zinc-500">Turmas em andamento sob sua responsabilidade.</p>
+        </div>
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <p className="py-16 text-center text-sm text-zinc-500">Carregando turmas…</p>
+        ) : turmas.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-zinc-300 py-16 text-center text-sm text-zinc-500">
+            Você não tem turmas ativas no momento.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
+            {turmas.map((t) => (
+              <CardTurmaProfessor key={t.id} turma={t} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
     <>
-      <div className="flex flex-col gap-6 h-full">
-        {/* Topo */}
+      <div className="flex h-full flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-zinc-900">Planejamento de Turmas</h1>
-            <p className="text-sm text-zinc-500 mt-0.5">Crie turmas, faça agendamentos e gerencie o ciclo de vida letivo.</p>
+            <h1 className="text-xl font-semibold text-zinc-900">Turmas</h1>
+            <p className="mt-0.5 text-sm text-zinc-500">Em espera → ativar (≥3 alunos) → aulas e término automáticos.</p>
           </div>
-          <button onClick={() => setModalNova(true)} className="flex items-center gap-2 h-10 px-5 text-sm font-bold text-white bg-[#1F2A35] rounded-lg hover:bg-[#2d3d4d] transition-colors shadow-sm">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Nova Turma
+          <button
+            type="button"
+            onClick={() => setModalNova(true)}
+            className="flex h-10 items-center gap-2 rounded-lg bg-[#1F2A35] px-5 text-sm font-bold text-white hover:bg-[#2d3d4d]"
+          >
+            + Nova turma
           </button>
         </div>
 
-        {/* Abas */}
-        <div className="flex gap-1 bg-zinc-100 p-1.5 rounded-lg w-fit border border-zinc-200 shadow-inner">
-          {([
-            { key: "em_andamento", label: "Em Andamento", count: countAndamento },
-            { key: "em_espera",    label: "Turmas em Espera", count: countEspera },
-            { key: "concluidas",   label: "Concluídas", count: countConcluidas },
-            { key: "inativas",     label: "Canceladas / Inativas", count: countInativas },
-          ] as const).map(({ key, label, count }) => (
-            <button key={key} onClick={() => setAba(key)}
-              className={`flex items-center gap-2 h-9 px-4 text-sm font-bold rounded-md transition-all ${
-                aba === key ? "bg-white text-[#1F2A35] shadow-sm border border-zinc-200" : "text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50"
-              }`}>
-              {label}
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${aba === key ? "bg-blue-100 text-blue-800" : "bg-zinc-200 text-zinc-600"}`}>{count}</span>
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+        )}
+
+        <div className="flex w-fit gap-1 rounded-lg border border-zinc-200 bg-zinc-100 p-1.5">
+          {(
+            [
+              { key: "andamento" as const, label: "Em andamento", count: counts.andamento },
+              { key: "espera" as const, label: "Em espera", count: counts.espera },
+              { key: "concluidas" as const, label: "Concluídas", count: counts.concluidas },
+              { key: "inativas" as const, label: "Inativas", count: counts.inativas },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setAba(t.key)}
+              className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold ${
+                aba === t.key ? "bg-white text-[#1F2A35] shadow-sm" : "text-zinc-500"
+              }`}
+            >
+              {t.label}
+              <span className="rounded-full bg-zinc-200 px-1.5 text-[10px]">{t.count}</span>
             </button>
           ))}
         </div>
 
-        {/* Filtros Básicos */}
         <div className="flex flex-wrap gap-3">
-          <select value={filtroProfessor} onChange={(e) => setFiltroProfessor(e.target.value)} className="h-9 border border-zinc-300 rounded-lg px-3 text-sm font-medium text-zinc-700 outline-none focus:border-[#1F2A35] bg-white shadow-sm">
+          <select value={filtroProfessor} onChange={(e) => setFiltroProfessor(e.target.value)} className={inputCls}>
             <option value="todos">Todos os professores</option>
-            <option>Carlos Mendes</option><option>Ana Paula Silva</option>
+            {professores.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nomeCompleto}
+              </option>
+            ))}
           </select>
-          <select value={filtroLivro} onChange={(e) => setFiltroLivro(e.target.value)} className="h-9 border border-zinc-300 rounded-lg px-3 text-sm font-medium text-zinc-700 outline-none focus:border-[#1F2A35] bg-white shadow-sm">
+          <select value={filtroLivro} onChange={(e) => setFiltroLivro(e.target.value)} className={inputCls}>
             <option value="todos">Todos os livros</option>
-            <option>Book 1</option><option>Book 2</option><option>Book 3</option>
+            {livros.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.nome}
+              </option>
+            ))}
           </select>
         </div>
 
-        {/* Grid de cards */}
-        {turmasFiltradas.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 bg-zinc-50 border border-dashed border-zinc-300 rounded-xl">
-            <svg className="text-zinc-300 mb-3" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <p className="text-zinc-500 font-medium">Nenhuma turma encontrada nesta categoria.</p>
-          </div>
+        {loading ? (
+          <p className="py-16 text-center text-sm text-zinc-500">Carregando turmas…</p>
+        ) : turmasFiltradas.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-zinc-300 py-16 text-center text-sm text-zinc-500">
+            Nenhuma turma nesta aba.
+          </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pb-6">
-            {turmasFiltradas.map((turma) => (
-              <CardTurma key={turma.id} turma={turma} onInativar={inativar} onAgendar={setTurmaAgendando} />
+          <div className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {turmasFiltradas.map((t) => (
+              <CardTurma
+                key={t.id}
+                turma={t}
+                onInativar={handleInativar}
+                onAgendar={setTurmaAgendando}
+                onConcluir={handleConcluir}
+                podeConcluir={podeConcluirTurma}
+                concluindo={concluindoId === t.id}
+              />
             ))}
           </div>
         )}
       </div>
 
-      {modalNova && <ModalNovaTurma onClose={() => setModalNova(false)} onSave={criarTurma} />}
-      {turmaAgendando && <ModalAgendarTurma turma={turmaAgendando} onClose={() => setTurmaAgendando(null)} onSave={confirmarAgendamento} />}
+      {modalNova && (
+        <ModalNovaTurma
+          livros={livros}
+          professores={professores}
+          horariosFuncionamento={horariosFuncionamento}
+          onClose={() => setModalNova(false)}
+          onSave={handleCriar}
+          saving={saving}
+        />
+      )}
+      {turmaAgendando && (
+        <ModalAgendarTurma
+          turma={turmaAgendando}
+          horariosFuncionamento={horariosFuncionamento}
+          onClose={() => setTurmaAgendando(null)}
+          onSave={handleAtivar}
+          saving={saving}
+        />
+      )}
     </>
   );
 }

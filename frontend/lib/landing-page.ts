@@ -12,7 +12,7 @@ type LandingRule = {
  */
 const SCHOOL_LANDING_PRIORITY: LandingRule[] = [
   { permission: "VISUALIZAR_DASHBOARD_GERAL", path: "/dashboard" },
-  { permission: "VISUALIZAR_AULA", path: "/professor" }, // "minhas aulas"
+  { permission: "VISUALIZAR_AULA", path: "/professor" }, // minha agenda
   { permission: "VISUALIZAR_AGENDA_GLOBAL", path: "/agenda" },
   { permission: "VISUALIZAR_MATRICULA", path: "/secretaria" },
   { permission: "VISUALIZAR_PRE_ALUNO", path: "/comercial" },
